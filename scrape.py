@@ -1,3 +1,18 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from twocaptcha import TwoCaptcha
+import time
+
+api_key = "YOUR_2CAPTCHA_API_KEY"
+SITE_KEY = "6LcXXXXXXXXXXXXXXX"  # Replace with real site key
+base_url = "https://stars.ylopo.com/auth"
+
+options = webdriver.ChromeOptions()
+options.add_argument('--headless')
+options.add_argument('--no-sandbox')
+options.add_argument('--disable-dev-shm-usage')
+
 def run_scrape(email, password, website_url):
     driver = webdriver.Chrome(options=options)
     driver.get(website_url)
@@ -25,7 +40,7 @@ def run_scrape(email, password, website_url):
     login_btn.send_keys(Keys.RETURN)
     print('successfully logged in')
 
-    # 🛠️ Custom retry loop (max 2 mins)
+    # 🛠️ Wait for login redirect and button
     max_wait_seconds = 120
     poll_interval = 1
     elapsed = 0
@@ -34,7 +49,7 @@ def run_scrape(email, password, website_url):
     while elapsed < max_wait_seconds:
         try:
             link_btn = driver.find_element(By.CLASS_NAME, 'ylopo-button')
-            break  # Found it!
+            break
         except:
             time.sleep(poll_interval)
             elapsed += poll_interval
@@ -44,11 +59,11 @@ def run_scrape(email, password, website_url):
         driver.quit()
         raise TimeoutError("ylopo-button never appeared")
 
-    # Continue normal flow
     print(driver.current_url)
     url_slug = driver.current_url.split('/')[-1]
     print('url_slug: ', url_slug)
 
+    # Get user_id and search_id
     get_user_info_script = f"""
     return fetch("https://stars.ylopo.com/api/1.0/open/{url_slug}?includes[]=allSavedSearches.searchAlerts.valuationReport")
         .then(response => response.json())
@@ -74,13 +89,20 @@ def run_scrape(email, password, website_url):
         driver.quit()
         raise Exception("User info fetch failed")
 
+    # ✅ Patch: use async script to return copied_link correctly
     copied_link_script = f"""
-    return fetch("https://stars.ylopo.com/api/1.0/lead/{user_id}/encryptedLink?personId={user_id}&runSearch=true&savedSearchId={search_id}")
+    const callback = arguments[0];
+    fetch("https://stars.ylopo.com/api/1.0/lead/{user_id}/encryptedLink?personId={user_id}&runSearch=true&savedSearchId={search_id}")
         .then(response => response.json())
-        .then(data => data.shortLink)
-        .catch(error => console.error('Error:', error));
+        .then(data => {{
+            callback(data.shortLink);
+        }})
+        .catch(error => {{
+            console.error('Link fetch error:', error);
+            callback(null);
+        }});
     """
-    copied_link = driver.execute_script("return (function() {{ {copied_link_script} }})()")
+    copied_link = driver.execute_async_script(copied_link_script)
 
     print("Copied link:", copied_link)
 
