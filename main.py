@@ -2,9 +2,9 @@ from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel, EmailStr
 import uvicorn
 import requests
-import concurrent.futures
 import logging
 import asyncio
+import json
 from scrape import run_scrape
 
 # Logging setup — write to file and terminal
@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 
 app = FastAPI()
-resonse_webhook_url = "https://hook.integrator.boost.space/k80rinp9fgzwhlysiohlvy12x8r0qa36"
+response_webhook_url = "https://hook.integrator.boost.space/k80rinp9fgzwhlysiohlvy12x8r0qa36"
 
 # Limit to 2 concurrent scrapes globally
 semaphore = asyncio.Semaphore(2)
@@ -41,7 +41,7 @@ async def main(user_credential: UserCredential, background_tasks: BackgroundTask
         user_credential.FUB_ID,
         user_credential.FUB_email
     )
-    return {'message': f'Scraping in progress. Check webhook for results. 👉 {resonse_webhook_url}'}
+    return {'message': f'Scraping in progress. Check webhook for results. 👉 {response_webhook_url}'}
 
 @app.get("/health")
 async def health():
@@ -63,21 +63,19 @@ async def run_scrape_and_send_webhook(email: EmailStr, password: str, url: str, 
                 "FUB_email": FUB_email
             })
 
-    except concurrent.futures.TimeoutError:
-        logging.error(f"⏱ Scraping timed out for {FUB_email}")
     except Exception as error:
         logging.error(f"❌ Scraping failed for {FUB_email}: {type(error).__name__} – {error}")
 
 def send_webhook(response):
-    logging.info("📤 Sending webhook response...")
-    logging.info(response)
+    logging.info(f"📤 Sending webhook to {response_webhook_url}")
+    logging.info(f"📦 Payload: {json.dumps(response)}")
     try:
-        res = requests.post(resonse_webhook_url, json=response, timeout=10)
+        res = requests.post(response_webhook_url, json=response, timeout=10)
         if res.ok:
             logging.info("✅ Webhook was successful")
         else:
             logging.warning("⚠️ Webhook failed. Retrying once...")
-            res_retry = requests.post(resonse_webhook_url, json=response, timeout=10)
+            res_retry = requests.post(response_webhook_url, json=response, timeout=10)
             if res_retry.ok:
                 logging.info("✅ Retry succeeded")
             else:
