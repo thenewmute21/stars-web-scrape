@@ -54,13 +54,10 @@ async def run_scrape_and_send_webhook(email: EmailStr, password: str, url: str, 
             loop = asyncio.get_event_loop()
 
             try:
-                # ⏳ Run scraper with watchdog timeout of 8 minutes
-                copied_text = await asyncio.wait_for(
-                    loop.run_in_executor(None, run_scrape, email, password, url),
-                    timeout=480  # 8 minutes
-                )
-            except asyncio.TimeoutError:
-                logging.error(f"⏱ Scraping timed out after 8 minutes for {FUB_email}")
+                # 🛠️ Removed watchdog to avoid false timeouts
+                copied_text = await loop.run_in_executor(None, run_scrape, email, password, url)
+            except Exception as scrape_err:
+                logging.error(f"❌ Scraping threw an error for {FUB_email}: {scrape_err}")
                 return
 
             if not copied_text:
