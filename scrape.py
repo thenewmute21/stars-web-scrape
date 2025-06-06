@@ -5,7 +5,7 @@ from twocaptcha import TwoCaptcha
 import time
 
 api_key = "YOUR_2CAPTCHA_API_KEY"
-SITE_KEY = "6LcXXXXXXXXXXXXXXX"  # Replace with real site key
+SITE_KEY = "6LezG3omAAAAAGrXICTuXz0ueeMFIodySqJDboLT"  # Replace with real site key
 base_url = "https://stars.ylopo.com/auth"
 
 options = webdriver.ChromeOptions()
@@ -89,22 +89,34 @@ def run_scrape(email, password, website_url):
         driver.quit()
         raise Exception("User info fetch failed")
 
-    # ✅ Patch: use async script to return copied_link correctly
-    copied_link_script = f"""
-    const callback = arguments[0];
-    fetch("https://stars.ylopo.com/api/1.0/lead/{user_id}/encryptedLink?personId={user_id}&runSearch=true&savedSearchId={search_id}")
-        .then(response => response.json())
-        .then(data => {{
-            callback(data.shortLink);
-        }})
-        .catch(error => {{
-            console.error('Link fetch error:', error);
-            callback(null);
-        }});
-    """
-    copied_link = driver.execute_async_script(copied_link_script)
+    # ✅ Patch: use async script to return copied_link correctly and with fallback logging
+    try:
+        copied_link_script = f"""
+        const callback = arguments[0];
+        fetch("https://stars.ylopo.com/api/1.0/lead/{user_id}/encryptedLink?personId={user_id}&runSearch=true&savedSearchId={search_id}")
+            .then(response => response.json())
+            .then(data => {{
+                if (data.shortLink) {{
+                    callback(data.shortLink);
+                }} else {{
+                    console.error("No shortLink found in response.");
+                    callback(null);
+                }}
+            }})
+            .catch(error => {{
+                console.error('Link fetch error:', error);
+                callback(null);
+            }});
+        """
+        copied_link = driver.execute_async_script(copied_link_script)
+    except Exception as e:
+        print(f"❌ Exception while fetching shortLink: {e}")
+        copied_link = None
 
-    print("Copied link:", copied_link)
+    if copied_link:
+        print("Copied link:", copied_link)
+    else:
+        print("❌ No copied link returned.")
 
     driver.quit()
     return copied_link
