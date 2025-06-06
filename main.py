@@ -55,7 +55,11 @@ async def run_scrape_and_send_webhook(email: EmailStr, password: str, url: str, 
             loop = asyncio.get_event_loop()
             copied_text = await loop.run_in_executor(None, run_scrape, email, password, url)
 
-            logging.info(f"✅ Scrape completed for {FUB_email}, sending webhook...")
+            if not copied_text:
+                logging.error(f"❌ No link was returned for {FUB_email}. Skipping webhook.")
+                return
+
+            logging.info(f"✅ Scrape completed for {FUB_email}. Copied link: {copied_text}")
 
             send_webhook({
                 "copied_text": copied_text,
