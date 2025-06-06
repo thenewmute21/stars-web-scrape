@@ -6,10 +6,14 @@ import concurrent.futures
 import logging
 from scrape import run_scrape
 
-# Logging setup
+# Logging setup — write to file and terminal
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("/root/stars-web-scrape/log.txt"),
+        logging.StreamHandler()
+    ]
 )
 
 app = FastAPI()
@@ -24,7 +28,7 @@ class UserCredential(BaseModel):
 
 @app.post("/")
 async def main(user_credential: UserCredential, background_tasks: BackgroundTasks):
-    logging.info("📬 Received POST / request")
+    logging.info(f"📬 Received POST request for {user_credential.FUB_email} (FUB_ID: {user_credential.FUB_ID})")
     background_tasks.add_task(
         run_scrape_and_send_webhook,
         user_credential.email,
@@ -41,12 +45,14 @@ async def health():
 
 async def run_scrape_and_send_webhook(email: EmailStr, password: str, url: str, FUB_ID: int, FUB_email: EmailStr):
     try:
-        logging.info("🔥 Started scraping script")
+        logging.info(f"🔥 Started scraping script for {FUB_email} — URL: {url}")
 
         # Run scrape with 90-second timeout
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(run_scrape, email, password, url)
             copied_text = future.result(timeout=90)
+
+        logging.info(f"✅ Scrape completed for {FUB_email}, sending webhook...")
 
         # Send result to webhook
         send_webhook({
@@ -56,9 +62,9 @@ async def run_scrape_and_send_webhook(email: EmailStr, password: str, url: str, 
         })
 
     except concurrent.futures.TimeoutError:
-        logging.error(f"⏱ Scraping timed out for {email}")
+        logging.error(f"⏱ Scraping timed out for {FUB_email}")
     except Exception as error:
-        logging.error(f"❌ An error occurred: {type(error).__name__} – {error}")
+        logging.error(f"❌ Scraping failed for {FUB_email}: {type(error).__name__} – {error}")
 
 def send_webhook(response):
     logging.info("📤 Sending webhook response...")
