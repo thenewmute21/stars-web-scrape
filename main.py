@@ -4,6 +4,7 @@ import uvicorn
 import requests
 import concurrent.futures
 import logging
+import asyncio
 from scrape import run_scrape
 
 # Logging setup — write to file and terminal
@@ -18,6 +19,9 @@ logging.basicConfig(
 
 app = FastAPI()
 resonse_webhook_url = "https://hook.integrator.boost.space/k80rinp9fgzwhlysiohlvy12x8r0qa36"
+
+# Limit to 2 concurrent scrapes globally
+semaphore = asyncio.Semaphore(2)
 
 class UserCredential(BaseModel):
     email: EmailStr
@@ -45,21 +49,19 @@ async def health():
 
 async def run_scrape_and_send_webhook(email: EmailStr, password: str, url: str, FUB_ID: int, FUB_email: EmailStr):
     try:
-        logging.info(f"🔥 Started scraping script for {FUB_email} — URL: {url}")
+        async with semaphore:
+            logging.info(f"🔥 Started scraping script for {FUB_email} — URL: {url}")
 
-        # Run scrape with 90-second timeout
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(run_scrape, email, password, url)
-            copied_text = future.result(timeout=90)
+            loop = asyncio.get_event_loop()
+            copied_text = await loop.run_in_executor(None, run_scrape, email, password, url)
 
-        logging.info(f"✅ Scrape completed for {FUB_email}, sending webhook...")
+            logging.info(f"✅ Scrape completed for {FUB_email}, sending webhook...")
 
-        # Send result to webhook
-        send_webhook({
-            "copied_text": copied_text,
-            "FUB_ID": FUB_ID,
-            "FUB_email": FUB_email
-        })
+            send_webhook({
+                "copied_text": copied_text,
+                "FUB_ID": FUB_ID,
+                "FUB_email": FUB_email
+            })
 
     except concurrent.futures.TimeoutError:
         logging.error(f"⏱ Scraping timed out for {FUB_email}")
