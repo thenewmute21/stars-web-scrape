@@ -4,6 +4,9 @@ from selenium.webdriver.common.keys import Keys
 from twocaptcha import TwoCaptcha
 import time
 import logging
+import tempfile
+import uuid
+import shutil
 
 api_key = "147f2a193a2db639a49c64a00ed66cd5"
 SITE_KEY = "6LezG3omAAAAAGrXICTuXz0ueeMFIodySqJDboLT"  # ✅ Replace with real site key
@@ -15,13 +18,18 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-options = webdriver.ChromeOptions()
-options.add_argument('--headless')
-options.add_argument('--no-sandbox')
-options.add_argument('--disable-dev-shm-usage')
-
 def run_scrape(email, password, website_url):
     logging.info(f"🌐 Starting scraping for {email}")
+
+    # 🛡️ Create unique temp profile dir for Chrome
+    temp_profile = tempfile.mkdtemp(prefix=f"profile_{uuid.uuid4().hex}_")
+
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument(f'--user-data-dir={temp_profile}')
+
     driver = webdriver.Chrome(options=options)
     driver.get(website_url)
 
@@ -40,18 +48,15 @@ def run_scrape(email, password, website_url):
         code = response['code']
         logging.info("✅ Captcha solved")
 
-        # Inject the token
         driver.execute_script("document.getElementById('g-recaptcha-response').style.display = '';")
         recaptcha_text_area = driver.find_element(By.ID, "g-recaptcha-response")
         recaptcha_text_area.clear()
         recaptcha_text_area.send_keys(code)
 
-        # Submit login
         login_btn = driver.find_element(By.CLASS_NAME, "pb-button")
         login_btn.send_keys(Keys.RETURN)
         logging.info("✅ Successfully submitted login")
 
-        # Wait for .ylopo-button to appear
         max_wait_seconds = 120
         poll_interval = 1
         elapsed = 0
@@ -67,7 +72,6 @@ def run_scrape(email, password, website_url):
 
         if not link_btn:
             logging.error("❌ Timed out waiting for .ylopo-button to appear.")
-            driver.quit()
             return None
 
         logging.info("✅ Ylopo dashboard loaded")
@@ -75,7 +79,6 @@ def run_scrape(email, password, website_url):
         logging.info(f"📍 Current URL: {current_url}")
         url_slug = current_url.split('/')[-1]
 
-        # Fetch user/search info
         user_info_script = f"""
         return fetch("https://stars.ylopo.com/api/1.0/open/{url_slug}?includes[]=allSavedSearches.searchAlerts.valuationReport")
             .then(response => response.json())
@@ -93,13 +96,11 @@ def run_scrape(email, password, website_url):
 
         if not user_info or not user_info[0] or not user_info[1]:
             logging.error(f"❌ Missing user_id or search_id: {user_info}")
-            driver.quit()
             return None
 
         user_id, search_id = user_info
         logging.info(f"🆔 user_id: {user_id}, search_id: {search_id}")
 
-        # Fetch short link
         copied_link_script = f"""
         const callback = arguments[0];
         fetch("https://stars.ylopo.com/api/1.0/lead/{user_id}/encryptedLink?personId={user_id}&runSearch=true&savedSearchId={search_id}")
@@ -133,3 +134,8 @@ def run_scrape(email, password, website_url):
     finally:
         driver.quit()
         logging.info("🧹 Browser session closed")
+        try:
+            shutil.rmtree(temp_profile)
+            logging.info(f"🧼 Deleted temp profile dir: {temp_profile}")
+        except Exception as e:
+            logging.warning(f"⚠️ Could not delete temp profile dir: {e}")
