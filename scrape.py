@@ -5,7 +5,7 @@ from twocaptcha import TwoCaptcha
 import time
 import logging
 
-api_key = "YOUR_2CAPTCHA_API_KEY"
+api_key = "147f2a193a2db639a49c64a00ed66cd5"
 SITE_KEY = "6LezG3omAAAAAGrXICTuXz0ueeMFIodySqJDboLT"  # ✅ Replace with real site key
 base_url = "https://stars.ylopo.com/auth"
 
