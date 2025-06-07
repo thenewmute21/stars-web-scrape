@@ -90,17 +90,21 @@ def send_webhook(response):
     logging.info(f"📦 Payload: {json.dumps(response)}")
     try:
         res = requests.post(response_webhook_url, json=response, timeout=10)
+        logging.info(f"🔄 Webhook response status: {res.status_code}")
+        logging.info(f"📨 Webhook response body: {res.text}")
+
         if res.ok:
             logging.info("✅ Webhook was successful")
         else:
             logging.warning("⚠️ Webhook failed. Retrying once...")
             res_retry = requests.post(response_webhook_url, json=response, timeout=10)
+            logging.info(f"🔁 Retry response status: {res_retry.status_code}")
+            logging.info(f"🔁 Retry response body: {res_retry.text}")
             if res_retry.ok:
                 logging.info("✅ Retry succeeded")
             else:
                 logging.error(f"❌ Retry also failed. Status: {res_retry.status_code}")
-                logging.error(res_retry.text)
-                save_failed_webhook(response, "Retry failed")
+                save_failed_webhook(response, f"Retry failed with status {res_retry.status_code}")
     except requests.exceptions.RequestException as e:
         logging.error(f"❌ Webhook exception: {e}")
         save_failed_webhook(response, str(e))
