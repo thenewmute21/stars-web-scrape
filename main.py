@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 
 app = FastAPI()
-response_webhook_url = "https://hook.us1.make.com/2e050890psgnz3bfa9llt8efm2g24ky9"
+response_webhook_url = "https://hook.integrator.boost.space/k80rinp9fgzwhlysiohlvy12x8r0qa36"
 
 # Limit to 2 concurrent scrapes globally
 semaphore = asyncio.Semaphore(2)
