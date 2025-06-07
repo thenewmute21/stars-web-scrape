@@ -5,6 +5,7 @@ import requests
 import logging
 import asyncio
 import json
+from datetime import datetime
 from scrape import run_scrape
 
 # Logging setup — write to file and terminal
@@ -54,7 +55,6 @@ async def run_scrape_and_send_webhook(email: EmailStr, password: str, url: str, 
             loop = asyncio.get_event_loop()
 
             try:
-                # 🛠️ Removed watchdog to avoid false timeouts
                 copied_text = await loop.run_in_executor(None, run_scrape, email, password, url)
             except Exception as scrape_err:
                 logging.error(f"❌ Scraping threw an error for {FUB_email}: {scrape_err}")
@@ -66,11 +66,21 @@ async def run_scrape_and_send_webhook(email: EmailStr, password: str, url: str, 
 
             logging.info(f"✅ Scrape completed for {FUB_email}. Copied link: {copied_text}")
 
-            send_webhook({
+            payload = {
                 "copied_text": copied_text,
                 "FUB_ID": FUB_ID,
-                "FUB_email": FUB_email
-            })
+                "FUB_email": FUB_email,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+            # Save success locally
+            try:
+                with open("/root/stars-web-scrape/scraped_log.jsonl", "a") as logf:
+                    logf.write(json.dumps(payload) + "\n")
+            except Exception as log_error:
+                logging.warning(f"⚠️ Failed to log scrape result: {log_error}")
+
+            send_webhook(payload)
 
     except Exception as error:
         logging.error(f"❌ Scraping failed for {FUB_email}: {type(error).__name__} – {error}")
@@ -90,9 +100,23 @@ def send_webhook(response):
             else:
                 logging.error(f"❌ Retry also failed. Status: {res_retry.status_code}")
                 logging.error(res_retry.text)
+                save_failed_webhook(response, "Retry failed")
     except requests.exceptions.RequestException as e:
         logging.error(f"❌ Webhook exception: {e}")
+        save_failed_webhook(response, str(e))
+
+def save_failed_webhook(response, error_message):
+    try:
+        failed_record = {
+            "payload": response,
+            "error": error_message,
+            "failed_at": datetime.utcnow().isoformat()
+        }
+        with open("/root/stars-web-scrape/failed_webhooks.jsonl", "a") as f:
+            f.write(json.dumps(failed_record) + "\n")
+        logging.info("📝 Saved failed webhook to retry queue")
+    except Exception as e:
+        logging.error(f"❌ Failed to write to failed_webhooks.jsonl: {e}")
 
 if __name__ == "__main__":
-    # 🛡️ Force long keep-alive to support long scraping operations
     uvicorn.run(app, host="0.0.0.0", port=8000, timeout_keep_alive=600)
