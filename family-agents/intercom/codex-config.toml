@@ -1,0 +1,18 @@
+# Merge into ~/.codex/config.toml on her machine.
+# Default = OpenAI (Codex's best models). `codex --profile free` = OpenRouter free models.
+
+# Leave `model` unset to use Codex's current default, or pin one here.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[model_providers.openrouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+env_key = "OPENROUTER_API_KEY"
+wire_api = "chat"
+
+[profiles.free]
+model_provider = "openrouter"
+# Pick one from `python openrouter_free.py models`. Prefer models that support
+# tool calling, otherwise Codex can't edit files or run commands with it.
+model = "qwen/qwen3-coder:free"
