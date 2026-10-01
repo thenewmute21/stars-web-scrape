@@ -7,11 +7,12 @@ from twocaptcha import TwoCaptcha
 from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from urllib.parse import urlparse
+import os
 import time
 import json
 
 SITE_KEY = '6LezG3omAAAAAGrXICTuXz0ueeMFIodySqJDboLT'
-api_key = '147f2a193a2db639a49c64a00ed66cd5'
+api_key = os.environ['TWOCAPTCHA_API_KEY']
 base_url = 'https://stars.ylopo.com/auth'
 
 # Create Chrome options for headless mode
