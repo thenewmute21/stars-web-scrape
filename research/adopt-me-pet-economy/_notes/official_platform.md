@@ -283,7 +283,7 @@ The real risks are:
 | DataStore storage | Unlimited in practice | 500 MB + 1 MB × lifetime users | 2026-07-14 |
 | GetAsync cache | 4 s, no opt-out | 4 s, `UseCache=false` opt-out | 2025-04-07 (text) |
 | Age signals | AccountAge only | `IsVerified`, `AgeChecked`, `PromptAgeCheck`, Kids/Select tiers | 2023-11 / 2026-08-11 / 2026-05-19 |
-| Paid random items | Odds disclosure in Community Standards | Dedicated page; "Hatch an egg for a pet" listed; pity/luck count | 2026-05-27 |
+| Paid random items | Odds disclosure in Community Standards | Dedicated page; "Hatch an egg for a pet" listed; pity/luck count | page 2026-05-27; "actual numerical odds" text and IsPaidItemTradingAllowed/ArePaidRandomItemsRestricted present since ≤2023-08-29 (repo start) |
 
 *Doc-repo commit date (history begins 2023-08-29). This is not necessarily the platform release date.
 
