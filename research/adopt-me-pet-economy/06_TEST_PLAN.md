@@ -467,3 +467,42 @@ beyond documented use, or running any third-party exploit tooling.
 - **And** an independent reviewer has read the commit, recovery and receipt paths.
 - **And** reconciliation alerts are live in production on day 1.
 - Reminder: **a passing harness ≠ production secure.** It reduces known-bug risk. It does not prove the absence of others.
+
+---
+
+## 8. Addendum (post-research): tests for 05 § Addendum
+
+Added on 2026-10-19. These tests pair with 05 §A.1–A.10 and with the rows in `03_ATTACK_SURFACE_MATRIX.md`. The rules in the
+"Read first" box at the top of this plan still apply: run only against our own universe and local mocks. Use synthetic
+webhook payloads and synthetic receipts, and never real refunds or real Robux transfers.
+
+### 8.1 Additional global invariants
+
+| ID | Invariant |
+|---|---|
+| INV-8 | No committed trade or gift moved a pet with `paid=true` if either party's cached `paidTradingAllowed` was false at prepare time. |
+| INV-9 | No pet id that has a `Revoke` ledger entry is `Owned` in any profile once inbox processing has run. |
+| INV-10 | Every profile's `debt` value is ≥ 0. `coins` and `coinsPaid` each satisfy INV-6. |
+
+### 8.2 Test matrix additions
+
+| ID | Scenario | Setup | Simulated input | Invariant | Expected deny / recovery | Logging | Pass criterion |
+|---|---|---|---|---|---|---|---|
+| T26 | Never save after a failed load (05 §A.7) | `failNext(1)` on the load `UpdateAsync`; the real data for `u_-1001` is seeded | Run autosave, PlayerRemoving, BindToClose, a receipt, a trade offer and inbox consumption on that session | INV-7 | The session is `Errored`. Every write path is refused, the receipt returns NotProcessedYet, and the trade is denied. A separate case passes a profile 90% smaller than the loaded snapshot to save(), and the shrink guard refuses it. | `load_failed`, `save_refused_errored`, `shrink_guard` | The store's write log has no entries for the key, and the seeded data is byte-identical afterwards. |
+| T27 | Refund clawback, including a pet already traded on (05 §A.1) | A buys a pet with PurchaseId `pid-9` and receives `coinsPaid`. A trades the pet to B for Q. | Inject `Clawback{pid-9}` into A's inbox, twice | INV-9, INV-10, INV-2 | The ledger walk finds B as the holder. If A still holds Q, the trade is reversed both ways. Otherwise the pet is revoked from B through B's inbox and B is flagged for a goodwill restore. The coin shortfall becomes `debt`, not a negative balance. The second clawback is a no-op. | `clawback pid=… holder=…` | One revoke, no negative balances, and B is never left net-negative without a review ticket. |
+| T28 | Webhook receiver hygiene | Receiver unit tests with a test secret | A valid signature; a bad signature; a stale timestamp outside the window; the same event ×5; a malformed body | — | Only the valid event is stored, once. The others are rejected. 2xx is returned only after the event is stored durably. | `webhook_reject reason=…` | One inbox item for five duplicate deliveries. |
+| T29 | Paid provenance gate (05 §A.3) | Pets: earned E, purchased P, hatched from paid coins H, crafted from E+P as C | Trades between `allowed↔allowed`, `allowed↔restricted` and `restricted↔restricted`; a policy fetch error; the flag flips between offer and prepare | INV-8 | E always trades. P, H and C are refused whenever either side is restricted or the fetch failed (fail closed). A flip between offer and prepare aborts the trade at prepare. The `paid` flag survives the trade. | `trade_deny PaidTradingNotAllowed` | INV-8 holds, H and C have `paid=true`, and E never has `paid=true`. |
+| T30 | Trade tier and age gates (05 §A.4) | Injected flags (`IsVerified()` is false in Studio) | Account age below the threshold; playtime below the threshold; a high-value tier without verification; all thresholds met | — | Gates follow the config, and changing the config needs no deploy. | `trade_deny TierGate` | Allowed and denied exactly per the config table |
+| T31 | Two-sided rollback and restore (05 §A.5) | Claimant A traded fairly with B (A gave X, got Y), then a "compromised" A traded X2 to mule M | A support restore runs for A's window, twice, and on two servers | INV-2, INV-9 | X and Y return both ways. X2 is revoked from M through M's inbox. The second restore is refused (one per period). A trade cooldown is applied. The original ids are revoked, and the restored ids come only from `Source=Restore`. | `restore_reverse trade=…` | B is not net-negative, no id is Owned twice, and there is exactly one restore. |
+| T32 | Kill switch (05 §A.6) | Trades in Proposed, Locked and Committing; a gift pending | Set `tradingEnabled=false` in the config key; separately, make the config unreadable for longer than N minutes | INV-4, INV-5 | Proposed and Locked trades abort. The Committing trade resolves through the saga or recover(). New offers are denied. Product prompts are hidden, but an already-paid receipt still grants. | `killswitch state=…` | No frozen items once the decision is made, and the paid receipt is honoured. |
+| T33 | Robux-transfer receipts (05 §A.2) | `BindReceiptHandler`-style handler fed synthetic `RobuxTransferSender` and `RobuxTransferReceiver` receipts | The same receipt ×3, on two servers, delayed (parental-consent simulation) | INV-3 analogue | One ledger `RobuxTransfer` entry per receipt, no item granted, and no trade state read or changed | `robux_transfer_dup` | Idempotent, with no inventory change |
+| T34 | Gift and craft go through the saga or a single write (05 §A.8) | A gifts P to B; A crafts 4×E into one N; a currency variant of T01 crafts two trades that both spend A's coins | Crash at each saga step (as in T02b–f); fault on the craft save; a concurrent second craft of the same inputs | INV-2, INV-5 | Gift faults converge as in T02. The craft is all-or-nothing, and the second craft fails because its inputs are gone. The currency trade double-spend is refused at prepare. | `craft_ok`, `trade_abort Insufficient` | Exactly one N, and the inputs are consumed exactly once |
+| T35 | Event currency and world-reward caps (05 §A.8) | Event active, with a cap of X per day and a plausibility ceiling R per minute | Claims above R; claims above X; ProximityPrompt and ClickDetector fires from implausible positions; a client-reported score | — | Rewards are clamped to the server-computed amount. Client scores are ignored. Far-away claims are denied. | `reward_clamp`, `reward_deny distance` | The per-day total is ≤ X and no reward comes from a client value. |
+| T36 | `recover()` read failure vs absent record (05 §A.9) | Committed trade; A is already finalized; B still has its marker | B's reload sees `readRecord` return `(false, nil)` three times, then `(true, Committed)` | INV-2 | B stays frozen while reads fail and finalizes once a read succeeds. It never compensates. Separately, `(true, nil)` leads to a compensate. | `trade_recover read_failed` | No pet is Owned in two profiles at any point. |
+| T37 | Release provenance and privileged-path audit (05 §A.10) | CI release record; staging universe | A place version not in the CI record; source containing `require(12345)`, `loadstring` or a Script inside an imported model; an Open Cloud key inventory audit against the §9 K1–K4 scopes; a client teleport to a non-start place in staging | — | The provenance job alerts and the CI lint fails. The key audit flags any key without an experience restriction, expiry or IP rule (where applicable). "Secure within universe only" blocks the teleport. | `release_unknown`, `lint_fail`, `key_audit` | Every check either fails closed or alerts. |
+
+### 8.3 Exit criteria additions
+
+- T26–T37 pass and INV-8 to INV-10 hold, in addition to section 7.
+- The webhook receiver (T28) has been exercised in staging with Roblox's test delivery, if one is offered. *Verify in
+  staging* that its receipt id maps to `PurchaseId` before relying on automated clawback.
