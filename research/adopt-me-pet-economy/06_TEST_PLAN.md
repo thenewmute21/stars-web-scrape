@@ -506,3 +506,11 @@ webhook payloads and synthetic receipts, and never real refunds or real Robux tr
 - T26–T37 pass and INV-8 to INV-10 hold, in addition to section 7.
 - The webhook receiver (T28) has been exercised in staging with Roblox's test delivery, if one is offered. *Verify in
   staging* that its receipt id maps to `PurchaseId` before relying on automated clawback.
+
+### 8.4 Asset-provenance tests (AP-01 to AP-11)
+
+The asset-pipeline acceptance tests are specified in `04_EXTERNAL_ASSET_IMPORT_REALITY_CHECK.md` §6 (IDs AP-01 to AP-11:
+server kind allowlist, kind-id-only remote schemas, third-party loading disabled, group-owned assets, pinned packages,
+CI manifest and place-file hashing, Rojo source of truth, Open Cloud key scoping, secure subplaces / separate staging
+universe, third-party model sandboxing, catalog-ownership mapping idempotency). They run in CI and against the staging
+universe only, and are part of the exit criteria: a release candidate with any failing AP test is not publishable.
