@@ -118,7 +118,7 @@ Boundary rules:
 
 | Boundary | Rule |
 |---|---|
-| Client → server | The client sends intents only, such as `TradeAddPet(tradeId, petInstanceId)` or `ConfirmTrade(tradeId, offerVersion)`. Every argument is positively validated (§9.1) and rate-limited (§9.2). The server recomputes prices, ownership and trade contents from its own state. |
+| Client → server | The client sends intents only, such as `TradeAddPet(tradeId, petInstanceId)` or `ConfirmTrade(tradeId, offerVersion)`. Every argument is positively validated (§13.2) and rate-limited (§13.3). The server recomputes prices, ownership and trade contents from its own state. |
 | Server → DataStore | All profile reads and writes go through `UpdateAsync` with a session-lock check (F4, F7). The server never calls `SetAsync` on a profile. |
 | Server → MemoryStore / MessagingService | These are **never** a source of truth for ownership or balances (F9, F10). They are used for lobby lists, "trade request" pings and cache invalidation hints. Losing them may cost UX but never items. |
 | Roblox → server, receipts | The only trigger for paid grants. The server never trusts the client's purchase-finished signal (F11). |
@@ -308,7 +308,7 @@ Rules:
   mutation), `eventId:userId`, `restoreTicketId`.
 - Provenance is immutable. Trades move the record and append a ledger `Transfer` entry, but never change `mintSource` or `mintRef`.
 - The instance id is a v4 GUID (F14). Uniqueness is probabilistic, but collisions are astronomically unlikely.
-  Duplicate detection (§10) exists to catch *logic* bugs, not GUID collisions.
+  Duplicate detection (§11) exists to catch *logic* bugs, not GUID collisions.
 
 ---
 
@@ -404,7 +404,7 @@ flowchart LR
   F --> MC["MintCount ODS: IncrementAsync kind_shard, shard = hash of petId mod N"]
   L --> EXP["Open Cloud read-only exporter: List and Get pages, daily"]
   EXP --> W[("WORM bucket / warehouse, append-only, retention policy")]
-  W --> REC["Reconciliation jobs, see section 10"]
+  W --> REC["Reconciliation jobs, see section 11"]
 ```
 
 - **Append-only by convention:** DataStore entries are mutable, and versions are kept for only 30 days (F5).
@@ -448,7 +448,7 @@ sequenceDiagram
   `PetMint.mint(Restore, ticketId)`, so it goes through the single mint path.
 - **Restore revokes the original instance id.** That prevents the classic "report as lost, get it back, and the
   original also still circulates" duplication.
-- Restore volume per agent per day is capped, and spikes alert (§10).
+- Restore volume per agent per day is capped, and spikes alert (§11).
 - Rollback of a whole profile uses DataStore versioning (`GetVersionAsync`) with the same dual approval. Every pet
   that was traded away *after* the rollback point must be revoked or reconciled. The tool computes this from the ledger.
 
