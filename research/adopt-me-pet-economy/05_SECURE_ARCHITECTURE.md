@@ -561,6 +561,23 @@ flowchart LR
 > live game or load-tested, and it omits retries with ordered per-key queues (see Roblox's `DataStoreWrapper` pattern, F3),
 > data replication, and UI. Use the test plan in `06_TEST_PLAN.md` before trusting any of it.
 
+### 13.0 `Clock.luau`, injectable time source
+
+```lua
+--!strict
+-- SANDBOX/REFERENCE. All economy modules read time ONLY through this module, so tests can swap
+-- in a FakeClock (06 §4.3) and advance time deterministically. now() = wall-clock seconds
+-- (persisted timestamps, lock ages, trade deadlines); mono() = monotonic seconds (in-server
+-- intervals: rate limiting, confirm delay). Never persist mono() values.
+export type ClockImpl = { now: () -> number, mono: () -> number }
+local Clock = {}
+local impl: ClockImpl = { now = os.time, mono = os.clock }
+function Clock.now(): number return impl.now() end
+function Clock.mono(): number return impl.mono() end
+function Clock.set(newImpl: ClockImpl?) impl = newImpl or { now = os.time, mono = os.clock } end  -- tests only
+return Clock
+```
+
 ### 13.1 `Types.luau`
 
 ```lua
@@ -656,6 +673,7 @@ return Validation
 --!strict
 -- SANDBOX/REFERENCE. Token bucket keyed by (userId, remoteName). Server-only.
 local Players = game:GetService("Players")
+local Clock = require(script.Parent.Clock)
 
 type Bucket = { tokens: number, last: number }
 local RateLimiter = {}
@@ -671,7 +689,7 @@ function RateLimiter.allow(player: Player, remote: string, cost: number?): boole
 	local cfg = config[remote] or config.Default
 	local perPlayer = buckets[player.UserId]
 	if not perPlayer then perPlayer = {}; buckets[player.UserId] = perPlayer end
-	local now = os.clock()
+	local now = Clock.mono()
 	local b = perPlayer[remote]
 	if not b then b = { tokens = cfg.burst, last = now }; perPlayer[remote] = b end
 	b.tokens = math.min(cfg.burst, b.tokens + (now - b.last) * cfg.rate)
@@ -693,6 +711,7 @@ return RateLimiter
 -- SANDBOX/REFERENCE. Shows ONLY the lock check inside UpdateAsync (F4, F7).
 -- Production needs ordered per-key queues + backoff (Roblox DataStoreWrapper pattern).
 local HttpService = game:GetService("HttpService")
+local Clock = require(script.Parent.Clock)
 local SessionStore = {}
 local LOCK_TTL = 6 * 60                 -- seconds; autosave every <= 3 min refreshes it
 SessionStore.serverLockId = HttpService:GenerateGUID(false)
@@ -704,13 +723,13 @@ function SessionStore.lockedTransform(mutate: (any) -> any, release: boolean, ou
 		local meta = (keyInfo and keyInfo:GetMetadata()) or {}
 		local lockId, lockAt = meta.LockId, meta.LockAt or 0
 		local foreign = lockId ~= nil and lockId ~= SessionStore.serverLockId
-		if foreign and (os.time() - lockAt) < LOCK_TTL then
+		if foreign and (Clock.now() - lockAt) < LOCK_TTL then
 			return nil                                    -- cancel write: someone else owns it
 		end
 		local newValue = mutate(current)
 		if newValue == nil then return nil end
 		meta.LockId = if release then nil else SessionStore.serverLockId
-		meta.LockAt = os.time()
+		meta.LockAt = Clock.now()
 		out.ok = true
 		local userIds = keyInfo and keyInfo:GetUserIds() or {}
 		return newValue, userIds, meta
@@ -730,6 +749,7 @@ return SessionStore
 local HttpService = game:GetService("HttpService")
 local ServerStorage = game:GetService("ServerStorage")
 local Types = require(script.Parent.Types)
+local Clock = require(script.Parent.Clock)
 local Catalog = require(ServerStorage.Economy.Catalog) :: { [string]: { mintableBy: { [string]: boolean }, tradeable: boolean } }
 
 local VALID_SOURCES: { [string]: boolean } = { Purchase = true, Hatch = true, Event = true, Restore = true, Migration = true }
@@ -737,7 +757,7 @@ local PetMint = {}
 
 local function appendOutbox(p: Types.Profile, op: string, petId: string?, ref: string)
 	p.ledgerSeq += 1
-	table.insert(p.outbox, { seq = p.ledgerSeq, op = op, petId = petId, ref = ref, at = os.time() })
+	table.insert(p.outbox, { seq = p.ledgerSeq, op = op, petId = petId, ref = ref, at = Clock.now() })
 end
 PetMint.appendOutbox = appendOutbox
 
@@ -758,7 +778,7 @@ function PetMint.mint(s: Types.Session, kind: string, source: Types.Source, ref:
 	local id = HttpService:GenerateGUID(false)
 	p.pets[id] = {
 		id = id, kind = kind, state = "Owned", tradeId = nil,
-		mintSource = source, mintRef = ref, mintedAt = os.time(), originUserId = p.userId,
+		mintSource = source, mintRef = ref, mintedAt = Clock.now(), originUserId = p.userId,
 		holdUntilPersisted = (source == "Purchase") or nil,
 	}
 	p.mintRefs[mintKey] = id
@@ -791,6 +811,7 @@ return PetMint
 local MarketplaceService = game:GetService("MarketplaceService")
 local Types = require(script.Parent.Types)
 local PetMint = require(script.Parent.PetMint)
+local Clock = require(script.Parent.Clock)
 
 type Grant = (s: Types.Session, purchaseId: string) -> boolean   -- mutate in memory, no yield
 local ReceiptHandler = {}
@@ -827,7 +848,7 @@ local function process(receipt: { [string]: any }): Enum.ProductPurchaseDecision
 	else
 		local ok = grant(s, pid)
 		if ok then
-			p.purchases[pid] = os.time()
+			p.purchases[pid] = Clock.now()
 			s.unsavedPurchases[pid] = true
 			if s:save() then                                -- ONE UpdateAsync: grant + PurchaseId + outbox
 				s.unsavedPurchases = {}
@@ -862,6 +883,7 @@ return ReceiptHandler
 local HttpService = game:GetService("HttpService")
 local Types = require(script.Parent.Types)
 local PetMint = require(script.Parent.PetMint)
+local Clock = require(script.Parent.Clock)
 
 type State = "Proposed" | "Locked" | "Confirmed" | "Committing" | "Committed" | "Aborted"
 type Side = { userId: number, session: Types.Session, offer: { string }, ready: boolean, confirmedVersion: number? }
@@ -901,13 +923,13 @@ end
 function TradeService.ready(t: Trade, side: Side, version: number): boolean
 	if t.state ~= "Proposed" or version ~= t.offerVersion then return false end
 	side.ready = true
-	if t.a.ready and t.b.ready then t.state, t.lockedAt = "Locked", os.clock() end
+	if t.a.ready and t.b.ready then t.state, t.lockedAt = "Locked", Clock.mono() end
 	return true
 end
 
 function TradeService.confirm(t: Trade, side: Side, version: number): boolean
 	if t.state ~= "Locked" or version ~= t.offerVersion then return false end   -- stale UI => ignored
-	if os.clock() - (t.lockedAt :: number) < CONFIRM_DELAY then return false end
+	if Clock.mono() - (t.lockedAt :: number) < CONFIRM_DELAY then return false end
 	side.confirmedVersion = version                     -- double-accept is idempotent
 	if t.a.confirmedVersion == version and t.b.confirmedVersion == version then
 		t.state = "Confirmed"
@@ -973,7 +995,7 @@ end
 function TradeService.commit(t: Trade)
 	if t.state ~= "Confirmed" then return end
 	t.state = "Committing"
-	local deadline = os.time() + COMMIT_DEADLINE
+	local deadline = Clock.now() + COMMIT_DEADLINE
 	local created = store.update("t_" .. t.id, function(rec)
 		if rec ~= nil then return nil end                 -- never overwrite an existing record
 		return { state = "Committing", a = t.a.userId, b = t.b.userId,
@@ -984,7 +1006,7 @@ function TradeService.commit(t: Trade)
 	local okA = prepare(t, t.a, t.b) and t.a.session:save()
 	local okB = okA and prepare(t, t.b, t.a) and t.b.session:save()
 	local outcome: string? = nil
-	if okA and okB and os.time() < deadline then
+	if okA and okB and Clock.now() < deadline then
 		outcome = cas(t.id, "Committing", "Committed")
 	else
 		outcome = cas(t.id, "Committing", "Aborted")
@@ -1008,7 +1030,7 @@ function TradeService.recover(s: Types.Session, readRecord: (string) -> any?)
 	for tradeId in table.clone(p.trades) do
 		local rec = readRecord("t_" .. tradeId)          -- use GetAsync with UseCache=false (F5)
 		local state = rec and rec.state or "Aborted"
-		if state == "Committing" and os.time() > rec.deadline then
+		if state == "Committing" and Clock.now() > rec.deadline then
 			state = cas(tradeId, "Committing", "Aborted") or "Committing"
 		end
 		if state == "Committed" then finalize(p, tradeId)
@@ -1021,6 +1043,8 @@ return TradeService
 ```
 
 Notes on Roblox constraints in this code:
+- All time comes from `Clock` (§13.0); no module calls `os.time`/`os.clock` directly, so expiry, lock-age and
+  confirm-delay logic is deterministic under test.
 - `UpdateAsync` callbacks cannot yield (F4). All `mutate` and `cas` closures are pure, and saving happens outside them.
 - `cas` returning `nil` means the platform call failed. The design **never guesses**: items stay frozen until a
   later recovery observes a definitive record state.
