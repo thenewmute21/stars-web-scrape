@@ -1083,3 +1083,234 @@ Notes on Roblox constraints in this code:
 
 Cheapest wins first: dedup-in-profile, session locks, single mint and positive validation cost very little and close
 the highest-impact classes, which are outcomes C and D in the brief's ontology.
+
+---
+
+## § Addendum (post-research)
+
+Added 2026-10-19 after the evidence ledger and the attack-surface review (`03_ATTACK_SURFACE_MATRIX.md`, rows ASM-nn).
+These sections close gaps that sections 1–15 above do not cover. Ledger IDs are listed in brackets. Everything here remains
+**sandbox/reference design that has not been verified in production**. Items marked *verify in staging* rest on documented
+facts whose exact runtime behaviour we have not observed.
+
+New platform facts used here (all from the creator-docs source at commit 70a0110, per `_notes/official_platform.md`):
+
+| # | Fact | Ledger |
+|---|---|---|
+| F17 | The **Transaction Refunded** webhook covers developer products, passes, private servers and paid access, but not subscriptions. For passes and avatar items refunded by Customer Service, Roblox revokes ownership automatically. For developer products, "you need to use this notification to remove the granted benefit ... yourself." The payload carries the buyer, product, amount, universe/place, "transaction or receipt ID" and refund time. Signing uses an HMAC-SHA256 `roblox-signature` header; the docs suggest a ~10-minute replay window. Delivery retries 5 times, and duplicates are possible. In group-owned games, only group owners can configure webhooks. | OFF-020, OFF-021 |
+| F18 | `PromptRobuxTransferAsync(sender, receiverUserId, amount)` is server-initiated, available to Roblox Plus subscribers, for 10–500 Robux. The game earns 10%. Receipts go to both sides (`RobuxTransferSender` / `RobuxTransferReceiver` through `BindReceiptHandler`) and may be delayed by parental consent. Cross-game pass and product sales were disabled from 2026-05-30. | OFF-015, OFF-016, OFF-017 |
+| F19 | `PolicyService:GetPolicyInfoForPlayerAsync` returns `IsPaidItemTradingAllowed` and `ArePaidRandomItemsRestricted`. When trading is not allowed, the creator "must not allow them to access the ability to trade the resulting outcome of a paid random item or other paid items". "Hatch an egg for a pet" is a listed paid-random-item example, and the rule extends to purchases made indirectly through Robux-bought currency. | OFF-036, OFF-037, OFF-038 |
+| F20 | `Player:IsVerified()` (server-only; false in Studio), `Player.AgeChecked` (an `Enum.AgeCheckStatus` set by the server) and `Player:PromptAgeCheck()` exist. There are account tiers Kids / Select / Roblox. | OFF-039, OFF-040 |
+
+### A.1 Refund clawback via the Transaction Refunded webhook (ASM-09, ASM-19, ASM-39)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant RB as Roblox webhook
+  participant WS as Our webhook service, off-platform
+  participant OC as Open Cloud key K2
+  participant IN as inbox_userId
+  participant GS as Game server, session holder
+  RB->>WS: Transaction Refunded, signed
+  WS->>WS: verify HMAC and timestamp window, dedupe by receipt id
+  WS->>OC: append Clawback item, idempotent by receipt id
+  OC->>IN: UpdateAsync append
+  GS->>IN: consume on load and on a timer
+  GS->>GS: revoke pets minted from that purchase, debit paid currency, ledger Revoke
+  GS->>GS: if a pet already moved, enqueue holder revocation per A.5
+```
+
+- **Receiver.** This is a small off-platform service. It verifies `roblox-signature` (HMAC-SHA256) and rejects requests
+  outside the timestamp window. It dedupes by the transaction/receipt id, stores every event in the WORM archive (§7), and
+  returns 2xx only after it has stored the event durably. Because duplicates and retries happen (F17), every step is idempotent.
+- **Mapping to our grant.** *Verify in staging* that the webhook's receipt id equals `receiptInfo.PurchaseId`. Until that is
+  verified, match on (buyer userId, productId, amount, time window), and send any ambiguous match to manual review.
+- **Applying the clawback.** The game server consumes `Clawback{purchaseId}` from the restore inbox (§8). It never writes
+  through Open Cloud into a live profile. In one profile `UpdateAsync` it does the following:
+  1. It marks the profile's pets whose `mintRef == purchaseId` as `Revoked`.
+  2. It debits Robux-bought currency (`coinsPaid`, A.3). Any shortfall goes to a non-negative `debt` field, so INV-6 still
+     holds.
+  3. It appends `Revoke` ledger entries.
+  4. It records `clawbacks[purchaseId]` so the clawback is idempotent.
+- **Pets already traded on.** The tool walks the ledger from each minted id to its current holder and handles the trade
+  that moved it as follows:
+  1. It reverses that trade **both ways** if the refunder still holds what they received.
+  2. Otherwise it revokes from the current holder through that holder's inbox (A.5), and a dual-approved goodwill restore
+     (`Source=Restore`) is considered for the innocent recipient. Recipients who were not party to the fraud are never left
+     to absorb the loss silently. This mirrors the Adopt Me! 2022 cleanup, which spared people who "traded for duplicate
+     pets" (AM-024).
+- **Prevention beats cure.** Give paid-provenance pets (A.3) a configurable **tradability hold** after purchase. This
+  follows Valve's precedent of holding or blocking newly purchased items (ECO-004, ECO-010). The docs do not state a refund
+  window, so set the hold length from our own observed refund-timing data, not from a guess.
+- **Consumer-protection guardrail.** Never ban or lock an account just because a refund or chargeback happened. FTC v. Epic
+  barred locking accounts for disputing unauthorized charges (ECO-034). Remove the refunded benefit, and escalate only
+  repeated patterns to human review.
+- **Passes.** Roblox revokes pass ownership itself (F17). Any in-game items we granted *because of* a pass must be
+  re-derived from ownership on join, or revoked by the same flow.
+- **Ops dependency.** For a group-owned game, only group owners can configure the webhook (F17). Webhook delivery therefore
+  depends on the owner account being secure (ASM-07). We found no verified pull API for refunds, so missed webhooks are a
+  monitoring gap. Alert when the daily refund count is zero against a non-zero trailing baseline.
+
+### A.2 Robux transfers (`PromptRobuxTransferAsync`) as an RMT rail (ASM-20)
+
+- **Default for launch: do not couple transfers to items.** If we offer transfers at all (for tipping, for example), the
+  pet trade system never reads transfer state. In-game text should say that we cannot enforce deals settled with transfers.
+  That is the same position as Roblox's "we are not able to reverse it" guidance (ECO-018).
+- **Receipts.** If transfers are enabled, register explicit `BindReceiptHandler` handlers for `RobuxTransferSender` and
+  `RobuxTransferReceiver`. Each one records the transfer id in the profile and appends a `RobuxTransfer` ledger entry in one
+  `UpdateAsync`, then returns `Processed`. That makes each receipt idempotent, just like §4. Do not grant anything.
+- **If a pet-for-Robux market is ever built**, it counts as **paid item trading**:
+  - Both parties must pass `IsPaidItemTradingAllowed` (A.3).
+  - The pet goes into `EscrowOut` under a durable `Trades_v1` record keyed by the transfer request *before* the prompt.
+  - The pet is released only when the receiver-side receipt is processed. Otherwise it is compensated at the deadline.
+  - Parental-consent delays (F18) must not strand the pet. Use a long deadline, and show the "pending" state in the UI.
+  - Disclose paid item trading in the Maturity & Compliance Questionnaire (OFF-038 notes).
+- **Signals.** Flag pairs that exchange transfers and also make lopsided pet trades. This is RMT or trust-trade evidence for
+  review, not for automatic bans.
+
+### A.3 Paid-vs-earned provenance and `IsPaidItemTradingAllowed` (ASM-10, ASM-34, ASM-55)
+
+- **`PetRecord.paid: boolean`** is set at mint and never cleared.
+  - Set it for `Source=Purchase`.
+  - Set it for `Hatch` or `Craft` when **any** input was paid: an egg bought with any `coinsPaid`, or any paid crafting input.
+  - It travels with the record through trades and gifts.
+- **Split currency.** Use `coinsPaid` (only from developer-product grants) and `coins` (earned).
+  - The spend order (earned first or paid first) is a product and compliance decision. Get it reviewed.
+  - Do not choose a spend order in order to dodge the policy.
+- **Gate (server-side, per player, fail-closed).**
+  - Read the policy on join with pcall and cache it for the session.
+  - On error, treat `IsPaidItemTradingAllowed` as **false**.
+  - A paid pet may be offered or received only if **both** parties are allowed.
+  - Earned pets still trade normally.
+  - We apply the restriction in both directions, sending and receiving. That is our conservative reading of "access the
+    ability to trade", not a quoted rule.
+- **Paid random items.** Keep odds in the server catalog, show numerical odds before purchase, and update them dynamically
+  for luck boosts (OFF-037). When `ArePaidRandomItemsRestricted` is true, apply one of the documented treatments, such as
+  hiding or blocking the paid egg or offering the earned path.
+
+```lua
+--!strict
+-- SANDBOX/REFERENCE. Pure trade gate; callers pass session-cached flags (policy read once on join, fail-closed).
+export type Flags = { paidTradingAllowed: boolean, tradeTierOk: boolean }
+export type Switches = { tradingEnabled: boolean, frozenKinds: { [string]: boolean } }
+local TradeGate = {}
+function TradeGate.canMove(sw: Switches, from: Flags, to: Flags, pet: { kind: string, paid: boolean? }): (boolean, string?)
+	if not sw.tradingEnabled then return false, "TradingDisabled" end          -- A.6 kill switch
+	if sw.frozenKinds[pet.kind] then return false, "KindFrozen" end
+	if not (from.tradeTierOk and to.tradeTierOk) then return false, "TierGate" end -- A.4
+	if pet.paid and not (from.paidTradingAllowed and to.paidTradingAllowed) then
+		return false, "PaidTradingNotAllowed"                                   -- F19
+	end
+	return true
+end
+return TradeGate
+```
+
+Call `TradeGate.canMove` for every pet in `setOffer` **and again in `prepare`**, because flags and switches can change
+between the two calls.
+
+### A.4 Age and verification gates (ASM-46, ASM-23)
+
+- `tradeTierOk` is a server-computed, configurable rule. It can combine `Player.AccountAge` with a playtime threshold, which
+  matches Adopt Me!'s 2-hour rule (AM-035), plus optional `IsVerified()` or a checked `AgeChecked` status for high-value
+  tiers or for any Robux-transfer feature.
+- We found no evidence that Adopt Me! gates in-game trading on age checks (AM-038, UNVERIFIED). Gating is therefore our
+  choice, not an industry norm. Keep it behind config, measure the false-positive cost, and never require chat (chat is off
+  for self-declared Select accounts, OFF-040).
+- These values are read on the server only. `IsVerified()` returns false in Studio (F20), so tests must inject flags.
+
+### A.5 Two-sided rollback and restore policy (ASM-17, ASM-18, ASM-38, ASM-39); corrects §8
+
+1. **Freeze first.** On an ATO claim, freeze the claimant's tradability. We cannot see the cause, which is at the Roblox
+   account layer.
+2. **Compute the reversal set from the ledger.** That is every trade and gift by the claimant inside the claimed compromise
+   window.
+3. **Reverse each trade both ways.** Return the claimant's outgoing items **and** the counterparty's items. A counterparty
+   who traded fairly must never end up net-negative. This is the one-sided rollback abuse in ECO-028 and RBX-039, and
+   Valve's "reverse all trades" model (ECO-011) is the precedent.
+4. **Items that moved on** are revoked from their current holders. A holder who was not party to the fraud gets a reviewed
+   goodwill restore.
+5. **Limits.** Allow one restore per account per policy period (AM-021, ECO-029). After a reversal, apply a trade cooldown
+   (ECO-011 reports 30 days). Require dual approval (§8), and cap restores per agent (§11).
+6. **Revocation lookup (replaces "sees the revocation on load").** Per-pet lookups on load are not budget-safe (F5). Instead:
+   - the support tool resolves the **current holder** from the ledger export and writes `Revoke{petId}` to that holder's
+     `inbox_<userId>`, which is consumed through the single path on load;
+   - `Revocations_v1` stays the audit record;
+   - a nightly scan asserts that no revoked id is `Owned` anywhere (INV-9) and pages on-call if one is.
+
+### A.6 Trading and gifting kill switch (ASM-11, ASM-37, ASM-44)
+
+- **Where the switch lives.** It is a durable config key, `Config_v1/economy`, holding `tradingEnabled`, `giftingEnabled`,
+  `hubEnabled`, `frozenKinds`, `mintPaused[source]` and `productPromptsEnabled[productId]`.
+- **How servers read it.** Every server reads it with `UseCache=false` (F5) every 30–60 s. A MessagingService "refresh now"
+  nudge speeds this up, but the nudge is best effort, so the periodic read is the guarantee (F10).
+- **Semantics.**
+  - Disabling blocks **new** `Proposed→Locked` and `Locked→Confirmed` transitions, and aborts in-memory trades in
+    Proposed or Locked.
+  - Trades already in `Committing` **always run to a decision** through §6.2 and `recover()`. Stranding a trade mid-saga is
+    worse than letting it finish.
+  - Disabling a product hides its prompt only. Receipts for purchases already paid are still processed (§4). Refusing a
+    paid receipt is not a kill switch.
+- **Fail-safe.** If the config is unreadable for longer than N minutes, treat trading and gifting as disabled. Trading needs
+  healthy DataStores anyway.
+- **Change control.** Flipping the switch is a dual-approved, audited ops action through a scoped Open Cloud key (§9). The
+  on-call runbook says "freeze first, investigate second". That matches every precedent we found (AM-016, AM-018, RBX-025,
+  RBX-031).
+
+### A.7 Never save after a failed load (ASM-01, ASM-37)
+
+- **Session states.**
+  - `Loaded` is reached only when the load `UpdateAsync` returned successfully.
+  - `Errored` covers read errors, a foreign lock, a newer schema (§3) or a stolen lock.
+  - A **new player** is recognized only from a *successful* read that returned `nil`. A failed read never means "new player".
+- **What `Errored` blocks.** Autosave, PlayerRemoving save, BindToClose save, purchases (`NotProcessedYet`), trades, gifts
+  and inbox consumption. Show "your data is unavailable, rejoin later" and kick after a grace period.
+- **Shrink guard.** Before any save, compare the pet count and the paid and earned balances against the loaded snapshot
+  plus the ledger ops in this session. Refuse a save that drops more than the ledger explains. Mark the session errored and
+  alert. This catches "save defaults over real data" bugs that evade the state flags (RBX-009 class; mechanism from OFF-027).
+
+### A.8 Gifting, crafting and event currency (ASM-21, ASM-22, ASM-27, ASM-28, ASM-33)
+
+- **Gift = trade with an empty counter-offer.** It uses the same §6 state machine, the same coordinator record, the same
+  `recover()`, and the same A.3, A.4 and A.6 gates. There is no separate "delete here, add there" path. The Grow a Garden
+  gifting dupe (RBX-031) is the class this prevents.
+- **Crafting.** Add `"Craft"` to `Source`, using `ref = hash(sorted consumed ids)`. Consuming the inputs and minting the
+  output happen in **one** in-memory mutation, persisted by one `UpdateAsync`. `paid` is the OR of the inputs' flags.
+- **Event currency.**
+  - Rewards are computed by the server from server-observed state, never from a client score.
+  - Apply a per-user per-day cap and a per-minigame plausibility ceiling (maximum achievable rate).
+  - Event currency is untradeable and expires with the event (AM-034: caps plus bans until the currency expired).
+  - World-interaction rewards (ProximityPrompt, ClickDetector, Touched) re-check distance and state on the server, and use
+    server-owned or anchored parts (OFF-007, OFF-008).
+
+### A.9 Reference-code correction for `TradeService.recover` (ASM-12)
+
+`readRecord` must distinguish "**absent**" from "**read failed**". Change its contract to `(ok: boolean, rec: any?)`.
+
+- On `ok == false`, leave items frozen and retry on the 30 s timer.
+- Only `ok == true and rec == nil` means presumed abort. That is safe because §6.2 creates the record before any prepare.
+
+The same rule applies to `cas()`, which already returns `nil` on failure.
+
+### A.10 Owner, collaborator and tooling hardening (ASM-07, ASM-08, ASM-25, ASM-26)
+
+- **Release provenance.** CI records place version ↔ commit SHA for every publish. A scheduled job compares the live prod
+  place version against the CI record, and any publish CI did not make pages on-call. That is the RBX-019 hijack signal.
+- **Accounts.** The group owner is a dedicated account with 2SV and is not used for daily work. Prod publish rights are
+  limited to 2–3 people. Review the collaborator list monthly.
+- **Tooling.** Commit lockfiles and pin versions (`npm ci`). Keep an allowlist of tooling packages with no `postinstall` in
+  CI. Keep Open Cloud keys out of developer machines (Secrets Store or CI secrets only). These controls target the noblox.js
+  typosquat class (RBX-016/017/018).
+- **Content.** The CI lint fails on `require(<number>)`, `loadstring` and `getfenv`/`setfenv` anywhere outside an
+  allowlist, and on any Script inside imported models (RBX-021, RBX-023, OFF-035).
+
+### A.11 Additions to the P0 checklist (§14)
+
+- [ ] Refund webhook receiver is live: HMAC verified, idempotent, feeding the inbox; clawback handles pets that were traded on (A.1).
+- [ ] `paid` flag and split currency exist; the `IsPaidItemTradingAllowed` gate is fail-closed and checked at offer and at prepare (A.3).
+- [ ] The kill switch works without a deploy; Committing trades still resolve (A.6).
+- [ ] Errored sessions never save; the shrink guard is active (A.7).
+- [ ] Gifts and crafting go only through the saga and single mint path (A.8).
+- [ ] `recover()` distinguishes a read failure from an absent record (A.9).
+- [ ] The release-provenance check is running (A.10).
