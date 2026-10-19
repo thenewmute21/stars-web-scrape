@@ -18,9 +18,9 @@ Execution date **2026-10-19** · Scope: launch of Adopt Me! (2017) to the execut
 
 | Snapshot | Count / status |
 |---|---|
-| Evidence-ledger claims | **210** (60 docs-verified against Roblox's official docs source @ 2026-10-17; 150 search-snippet-only) |
-| Adopt Me!-specific claims | 60 (none page-verified, because all source pages were blocked; best first-party items are STRONGLY CORROBORATED) |
-| Adopt Me! duplication incidents acknowledged by Uplift | **1** (2022-09-02, AM-024). Root cause was never published. |
+| Evidence-ledger claims | **218** (60 docs-verified against Roblox's official docs source @ 2026-10-17; 158 search-snippet-only, including 8 FU- rows from the post-mortem follow-up) |
+| Adopt Me!-specific claims | 68 incl. FU- (none page-verified, because all source pages were blocked; best first-party items are STRONGLY CORROBORATED) |
+| Adopt Me! duplication incidents acknowledged by Uplift | **1** (2022-09-02, AM-024). Root cause was never published. Plus one acknowledged reward-generation exploit (Feb 2025, FU-001). |
 | Primary evidence of Uplift insider abuse or backdoors | **None** (AM-048) |
 | Attack-surface rows / backlog items / test cases | 55 (ASM) / 44 (17 × P0) / T01–T37 + AP-01–AP-11 + soak tests |
 
@@ -37,12 +37,15 @@ Confidence labels: CONFIRMED / STRONGLY CORROBORATED / PLAUSIBLE / UNVERIFIED / 
 | 2020-04-22 | Data loss for "0.3% of our players… only up to 2 days". No cause given. | loss | STRONGLY CORROBORATED | AM-014 |
 | 2020-09-30 | Trading disabled for a "serious trading bug which was causing items to disappear". | loss | STRONGLY CORROBORATED | AM-016 |
 | 2020-10-20 | Game made private over "a critical bug with Roblox's Datastore Servers". Inventories to be restored. | loss / G | STRONGLY CORROBORATED | AM-018 |
+| 2020-10-20 (cause) | Roblox's own DevForum incident report: a game-server update broke DataStore reads and was rolled back. This independent second source makes it the best-sourced Adopt Me! incident. | platform | STRONGLY CORROBORATED | FU-004 |
 | 2020-11-05 | Trade License quiz, 30-day trade history, scam reporting, two-step trade with fairness warning. | control | STRONGLY CORROBORATED | AM-019 |
 | **2022-09-02** | **Dupe acknowledged:** "remove duplicate items from clearly exploiting users", sparing accidental finders and downstream traders. | **D** | STRONGLY CORROBORATED | AM-024 |
 | 2022-10-24 | Support stopped accepting hacked-account tickets "for the foreseeable future". | G | STRONGLY CORROBORATED | AM-026 |
+| 2025-02 | Exploit let "a few players" create large numbers of Subscription Reward items; trading of them blocked, accounts banned. | C | STRONGLY CORROBORATED | FU-001 |
 | 2025-04-11 | Ban wave for event-currency farming (Sakura Swoop) with tiered bans and caps. | C (farming) | STRONGLY CORROBORATED | AM-034 |
 | 2025-05-16 | New accounts need 2 h playtime before trading. | control | STRONGLY CORROBORATED | AM-035 |
 | 2026-07-31 | Cross-server Trading Hub. Listed pets are locked; the imbalance check is "not a true value system". | control | STRONGLY CORROBORATED | AM-037 |
+| 2026-07-15 | Trading briefly disabled after many Bat Dragons appeared. A fan account relays that Uplift attributed it to a **compromised staff account**, not a dupe. No official post found. | C / G | PLAUSIBLE | FU-003 |
 | ~2025 | Help center says "pet duplication is not possible". This **contradicts** AM-024. It also mentions automatic trade blocks on suspected duplicates. | H vs D | contradiction | AM-024 vs AM-029 |
 
 **What is *not* established for Adopt Me!:**
@@ -50,7 +53,7 @@ Confidence labels: CONFIRMED / STRONGLY CORROBORATED / PLAUSIBLE / UNVERIFIED / 
 - the date trading launched in 2019;
 - any 2023–2024 incident;
 - any working "spawner" that creates tradable pets (UNVERIFIED/DEBUNKED class E/H);
-- any insider or backdoor activity.
+- any insider or backdoor activity. FU-003 (2026-07-15) is a *compromised* staff account reported second-hand, not misconduct. Even so, it reinforces the staff-tooling risk (#5 below).
 
 ### 1b. General Roblox risks. These are evidence about classes of problem, not about Adopt Me!
 

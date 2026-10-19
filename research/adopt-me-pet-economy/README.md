@@ -21,7 +21,7 @@ Start with [`00_EXECUTIVE_BRIEF.md`](00_EXECUTIVE_BRIEF.md).
 | File | What it is |
 |---|---|
 | [00_EXECUTIVE_BRIEF.md](00_EXECUTIVE_BRIEF.md) | Top 10 risks, verified Adopt Me! findings vs general Roblox risks, highest-ROI defenses, P0 checklist |
-| [01_EVIDENCE_LEDGER.csv](01_EVIDENCE_LEDGER.csv) | 210 material claims (OFF-/AM-/RBX-/IMP-/ECO-) with outcome A–H, confidence, status, verification basis, defensive implication |
+| [01_EVIDENCE_LEDGER.csv](01_EVIDENCE_LEDGER.csv) | 218 material claims (OFF-/AM-/RBX-/IMP-/ECO-/FU-) with outcome A–H, confidence, status, verification basis, defensive implication |
 | [02_HISTORICAL_TIMELINE.md](02_HISTORICAL_TIMELINE.md) | Year by year, 2017–2026, in three lanes (Adopt Me!, platform, other games); gaps marked explicitly; corrections table |
 | [03_ATTACK_SURFACE_MATRIX.md](03_ATTACK_SURFACE_MATRIX.md) | 55 acquisition and abuse channels covering every prompt category 1–14, sorted by risk to our game; creator-motive analysis |
 | [04_EXTERNAL_ASSET_IMPORT_REALITY_CHECK.md](04_EXTERNAL_ASSET_IMPORT_REALITY_CHECK.md) | Visual asset vs real entitlement; import mechanisms; provenance controls AP-01..AP-11 |

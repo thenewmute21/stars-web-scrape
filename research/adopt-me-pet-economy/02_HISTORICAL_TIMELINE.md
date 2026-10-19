@@ -303,3 +303,22 @@ These entries are context for design choices only. None are Roblox or Adopt Me! 
 - A player pet-import or UGC-pet feature; leaked developer test pets.
 - Any audited revenue figure; any FTC or regulator action on fraud or security.
 - Any Uplift layoff or acquisition news for 2025–2026.
+
+---
+
+## Post-mortem follow-up additions (2026-10-19)
+
+From `_notes/followup_verification.md`. All entries are snippet-only.
+
+| Date | Lane | Event | Outcome | Confidence | Ledger |
+|---|---|---|---|---|---|
+| by 2019-06-07 | Adopt Me! | Two support posts show trading already existed. The launch date is still unknown. | n/a | STRONGLY CORROBORATED | AM-002 |
+| 2019-08-29 | Adopt Me! | Support stops refunding scams for items traded outside the trade menu. | G | STRONGLY CORROBORATED | FU-008 |
+| 2020-10-20 | Platform → Adopt Me! | Roblox DevForum incident report: a game-server update broke DataStore reads and was rolled back. This is the independent cause of AM-018. | platform | STRONGLY CORROBORATED | FU-004 |
+| 2025-02 | Adopt Me! | Subscription Rewards exploit: a few players generated large numbers of reward items; trading of them blocked, accounts banned. | C | STRONGLY CORROBORATED | FU-001 |
+| 2025-04-04 → 04-11 | Adopt Me! | Sakura Swoop event launches on 04-04; the ban wave follows on 04-11. This resolves an earlier date conflict. | C | STRONGLY CORROBORATED | AM-034 |
+| ~2025-06-23 | Adopt Me! | Improved in-game report system can return pets after reported scams. | G | STRONGLY CORROBORATED | FU-006 |
+| 2025-07-01 | Adopt Me! | Players kicked by "bug detection"; Uplift investigates. Shows the false-positive cost of anti-exploit. | n/a | STRONGLY CORROBORATED | FU-005 |
+| 2026-06-30 | Adopt Me! | Purchasing and trading reportedly paused over a bug. Fan account only. | H | PLAUSIBLE | FU-002 |
+| 2026-07-15 | Adopt Me! | Bat Dragon surge; trading paused the same day. A fan account relays that Uplift said a staff account was compromised and it was not a dupe. | C / G | PLAUSIBLE | FU-003 |
+| 2026-07-31 | Adopt Me! | Trading Hub launch date fixed by a second official post on 2026-07-30. | control | STRONGLY CORROBORATED | AM-037 |
