@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "second-brain": {
+      "command": "python3",
+      "args": ["second-brain-mcp/second_brain_mcp.py"],
+      "env": {
+        "SECOND_BRAIN_URL": "${SECOND_BRAIN_URL}",
+        "SECOND_BRAIN_TOKEN": "${SECOND_BRAIN_TOKEN}",
+        "SECOND_BRAIN_MODE": "${SECOND_BRAIN_MODE:-hybrid}"
+      }
+    }
+  }
+}
