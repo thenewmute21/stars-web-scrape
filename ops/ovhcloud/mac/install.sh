@@ -97,8 +97,16 @@ fi
 
 say "Authorizing this Mac's key for $INIT_USER@$IP"
 if ! ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$INIT_USER@$IP" true 2>/dev/null; then
-  echo "Enter the password from OVH's VPS delivery email when prompted."
-  ssh-copy-id -i "$KEY.pub" -o StrictHostKeyChecking=accept-new "$INIT_USER@$IP"
+  # OVH emails a temporary password and forces a change at the first login, then
+  # closes the session. ssh-copy-id can't do that change, so do it interactively first.
+  echo "First login: enter the temporary password from OVH's delivery email."
+  echo "If asked, type it again as the current password, then choose a new one (twice)."
+  echo "The connection then closes by itself; that's expected."
+  ssh -t -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no "$INIT_USER@$IP" true || true
+  echo "Now enter your NEW password once more so this Mac's key can be installed."
+  ssh-copy-id -i "$KEY.pub" -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no "$INIT_USER@$IP"
+  ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$INIT_USER@$IP" true \
+    || { echo "Key login still fails. Re-run this script; the password step is safe to repeat."; exit 1; }
 fi
 
 say "Uploading setup kit"

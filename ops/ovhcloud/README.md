@@ -23,7 +23,7 @@ instances. Target this spec and keep the whole bill at or under $50/month:
 
 | Item | Choice | Approx. $/mo |
 |---|---|---|
-| VPS | **8 vCores / 24 GB RAM / 200 GB NVMe** (currently sold as *VPS-3* in most regions). If that tier is priced above ~$35 where you are, take the **6 vCore / 12 GB** tier instead | $15–35 |
+| VPS | **8 vCores / 24 GB RAM / 200 GB NVMe**, sold as ***VPS-4*** in the 2027 range (plan code `vps-2027-model4`; US price Oct 2026: $27.50/mo, $23.37 with a 12-month commitment). The older 2025 range called this tier *VPS-3*, and *VPS-3* is now 6 vCore / 12 GB, so check the specs, not the name. If the 8 vCore tier is priced above ~$35 where you are, take the **6 vCore / 12 GB** tier (2027 *VPS-3*) instead | $15–35 |
 | Option | **Automated Backup** (daily snapshots, 7-day retention) | $3–8 |
 | Datacenter | Closest to **you** (US East: Vint Hill · US West: Hillsboro · Canada: Beauharnois · EU: Gravelines). The editor's responsiveness depends on this | — |
 | OS | **Ubuntu 24.04** | — |
