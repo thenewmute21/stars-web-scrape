@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Server-side hook: `git push ovh main` from the Mac deploys and restarts the agent.
+#
+# Setup on the server (once per project):
+#   git init --bare ~/repos/myproj.git
+#   cp post-receive ~/repos/myproj.git/hooks/ && chmod +x ~/repos/myproj.git/hooks/post-receive
+# On the Mac:
+#   git remote add ovh ovh-agent:repos/myproj.git
+set -euo pipefail
+
+BRANCH=main
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT="$(basename "$REPO_DIR" .git)"
+WORK_TREE="/srv/agent/workspace/$PROJECT"
+
+while read -r _old new ref; do
+  [[ "$ref" == "refs/heads/$BRANCH" ]] || continue
+  mkdir -p "$WORK_TREE"
+  git --git-dir="$REPO_DIR" --work-tree="$WORK_TREE" checkout -f "$BRANCH"
+  echo ">> deployed ${new:0:8} to $WORK_TREE"
+  sudo systemctl reload agent   # rebuilds image if Dockerfile/requirements changed, restarts container
+done

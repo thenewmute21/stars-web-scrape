@@ -1,0 +1,23 @@
+#cloud-config
+# First-boot config passed as --user-data by provision.sh.
+# Creates a non-root 'agent' user with the OVH keypair and locks down SSH.
+users:
+  - default
+  - name: agent
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"   # tighten after bootstrap if you prefer
+    lock_passwd: true
+
+# Copy the keypair OVH injected for the default 'ubuntu' user to 'agent'.
+runcmd:
+  - install -d -m 700 -o agent -g agent /home/agent/.ssh
+  - install -m 600 -o agent -g agent /home/ubuntu/.ssh/authorized_keys /home/agent/.ssh/authorized_keys
+  - sed -ri 's/^#?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -ri 's/^#?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -ri 's/^#?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config
+  - systemctl restart ssh
+
+package_update: true
+package_upgrade: true
+packages: [ufw, fail2ban, unattended-upgrades, tmux, jq, git, rsync, ripgrep]

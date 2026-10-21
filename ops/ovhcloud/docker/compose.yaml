@@ -1,0 +1,39 @@
+# /opt/agent/compose.yaml — started by systemd (agent.service), so it survives
+# SSH disconnects and reboots. Edit `command:` to launch your own agent entrypoint.
+name: agent
+
+services:
+  agent:
+    build: .
+    image: local/agent:latest
+    restart: unless-stopped          # crash -> restart with backoff
+    init: false                      # tini is already PID 1
+    command: ["python", "-m", "agent"]   # <-- your agent framework entrypoint
+    working_dir: /srv/agent/workspace
+    environment:
+      AGENT_METRICS_PORT: "9464"
+      ANTHROPIC_LOG: "info"
+    secrets:
+      - anthropic_api_key
+    volumes:
+      - /srv/agent/workspace:/srv/agent/workspace   # code the agent reads/edits
+      - /srv/agent/state:/srv/agent/state           # conversation/context checkpoints
+      - /srv/agent/index:/srv/agent/index           # embeddings / file index
+      - /srv/agent/logs:/srv/agent/logs             # usage.jsonl + app logs
+    ports:
+      - "127.0.0.1:9464:9464"        # Prometheus metrics, loopback only (reach via SSH tunnel)
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 6g                    # leave headroom on a b3-8; raise on b3-16
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9464/metrics',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+secrets:
+  anthropic_api_key:
+    file: /etc/agent/secrets/anthropic_api_key
