@@ -56,7 +56,7 @@ case "${1:-status}" in
     ;;
   code)
     command -v code >/dev/null || { echo "VS Code 'code' CLI not on PATH (VS Code → Command Palette → Shell Command: Install)"; exit 1; }
-    code --remote "ssh-remote+$HOST" "$WS/${2:-}"
+    code -n --remote "ssh-remote+$HOST" "$WS/${2:-}"   # -n: never retarget an open window
     ;;
   claude)
     DIR="$WS/${2:-}"

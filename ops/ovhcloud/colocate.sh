@@ -81,8 +81,10 @@ if ! sudo -iu agent bash -c 'command -v node >/dev/null && [[ "$(node -v)" == v'
 fi
 grep -q '.local/node/bin' /home/agent/.profile 2>/dev/null \
   || echo 'export PATH="$HOME/.local/node/bin:$HOME/.local/npm/bin:$PATH"' >> /home/agent/.profile
+# Top of .bashrc: Ubuntu's .bashrc returns early for non-interactive shells, and
+# `ssh ovh-agent 'claude --version'` must still find node/claude.
 grep -q '.local/node/bin' /home/agent/.bashrc 2>/dev/null \
-  || echo 'export PATH="$HOME/.local/node/bin:$HOME/.local/npm/bin:$PATH"' >> /home/agent/.bashrc
+  || sed -i '1i export PATH="$HOME/.local/node/bin:$HOME/.local/npm/bin:$PATH"' /home/agent/.bashrc
 chown agent:agent /home/agent/.profile /home/agent/.bashrc
 sudo -iu agent bash -c 'npm config set prefix "$HOME/.local/npm" && npm install -g @anthropic-ai/claude-code >/dev/null 2>&1' \
   || echo "   (Claude Code install failed; retry as agent: npm i -g @anthropic-ai/claude-code)"
