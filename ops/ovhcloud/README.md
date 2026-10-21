@@ -50,6 +50,22 @@ VPS password from OVH's email (once, before password login is disabled), and you
 Anthropic API key (hidden input). Then it hardens the server, installs Docker,
 Node 22, Claude Code and the agent stack, and verifies the login.
 
+### 1b. Or: put the agent on a server you already run (no new VPS)
+
+If you already admin a box with spare disk and CPU (ours: Hermes), skip the order and run:
+```bash
+ops/ovhcloud/mac/install.sh <SERVER_IP> --colocate <your-admin-ssh-alias>
+```
+It runs `colocate.sh` instead of `bootstrap.sh` and changes nothing host-wide (no apt
+upgrade, ufw, sshd, swap or system Node). The `agent` login gets **no sudo and no docker
+group**. It may sudo only root-owned helpers (`agent-compose`, `agent-set-cmd`,
+`agent-set-key`, `systemctl start|stop|restart|reload agent`), and `/opt/agent` is
+root-owned, so only `requirements.txt` and `Dockerfile` can be edited. Data goes on
+`DATA_ROOT` (default `/mnt/data/agent`), the container is capped at 2 CPUs / 6 GB, and
+Node + Claude Code live in `/home/agent` only. Trade-off: VS Code and interactive
+`claude` sessions share the machine with production (as an unprivileged user), and the
+host's existing open ports stay as they are.
+
 ### 2. Add your second Mac
 
 ```bash
