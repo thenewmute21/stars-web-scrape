@@ -1,5 +1,7 @@
 # /opt/agent/compose.yaml — started by systemd (agent.service), so it survives
-# SSH disconnects and reboots. Edit `command:` to launch your own agent entrypoint.
+# SSH disconnects and reboots. Settings live in /opt/agent/.env (written by bootstrap.sh):
+#   AGENT_CMD        your agent framework's entrypoint (agent-ctl set-cmd "...")
+#   AGENT_MEM_LIMIT  / AGENT_CPUS  sized to the box so VS Code sessions never starve
 name: agent
 
 services:
@@ -8,7 +10,7 @@ services:
     image: local/agent:latest
     restart: unless-stopped          # crash -> restart with backoff
     init: false                      # tini is already PID 1
-    command: ["python", "-m", "agent"]   # <-- your agent framework entrypoint
+    command: ${AGENT_CMD:-python /app/agent_idle.py}
     working_dir: /srv/agent/workspace
     environment:
       AGENT_METRICS_PORT: "9464"
@@ -23,10 +25,11 @@ services:
     ports:
       - "127.0.0.1:9464:9464"        # Prometheus metrics, loopback only (reach via SSH tunnel)
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs: ["/tmp", "/home/agent:uid=10001,gid=10001,mode=0700"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    mem_limit: 6g                    # leave headroom on a b3-8; raise on b3-16
+    mem_limit: ${AGENT_MEM_LIMIT:-6g}
+    cpus: ${AGENT_CPUS:-2}
     pids_limit: 512
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9464/metrics',timeout=3)"]

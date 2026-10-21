@@ -4,27 +4,91 @@ Blueprint for running a long-lived autonomous agent (multi-turn loops, codebase
 indexing, tool execution) on OVHcloud, leaving the Mac Studio as a thin editor.
 
 ```
- Mac Studio (editor only)                   OVHcloud (GRA / SBG / BHS)                     Anthropic API
+ Mac Studio + MacBook (editors)             OVHcloud VPS (nearest region)                   Anthropic API
 ┌──────────────────────────┐   SSH :22    ┌──────────────────────────────────────┐  HTTPS  ┌──────────────┐
-│ VS Code Remote-SSH       │─────────────▶│ b3-8 / VPS  Ubuntu 24.04             │────────▶│ /v1/messages │
+│ VS Code Remote-SSH       │─────────────▶│ VPS 8 vCore/24 GB  Ubuntu 24.04      │────────▶│ /v1/messages │
 │  or Mutagen two-way sync │  (multiplex) │  systemd ─▶ docker compose           │         └──────────────┘
 │ agent-ctl.sh             │◀── tunnels ──│   └─ agent container (non-root, ro)  │  HTTPS  ┌──────────────┐
 │  logs / tokens / metrics │   :9464      │        reads/writes /srv/agent/*     │────────▶│ OVH AI       │
-└──────────────────────────┘              │  /srv/agent = Block Storage volume   │ (opt.)  │ Endpoints    │
+└──────────────────────────┘              │  /srv/agent + daily OVH backups      │ (opt.)  │ Endpoints    │
                                           └──────────────────────────────────────┘         └──────────────┘
 ```
 
+## Quick start (≈15 minutes, ≤ $50/month)
+
+### 0. What to buy
+
+The **OVH VPS** line is far better value for this workload than Public Cloud
+instances. Target this spec and keep the whole bill at or under $50/month:
+
+| Item | Choice | Approx. $/mo |
+|---|---|---|
+| VPS | **8 vCores / 24 GB RAM / 200 GB NVMe** (currently sold as *VPS-3* in most regions). If that tier is priced above ~$35 where you are, take the **6 vCore / 12 GB** tier instead | $15–35 |
+| Option | **Automated Backup** (daily snapshots, 7-day retention) | $3–8 |
+| Datacenter | Closest to **you** (US East: Vint Hill · US West: Hillsboro · Canada: Beauharnois · EU: Gravelines). The editor's responsiveness depends on this | — |
+| OS | **Ubuntu 24.04** | — |
+| Headroom | OVH AI Endpoints embeddings (Option B below), if ever needed | $0–5 |
+
+Why 24 GB RAM? The agent container gets half of it. The other half goes to the
+OS and to the VS Code server processes, one per connected Mac at roughly 1–2 GB each. That way
+your Mac Studio and MacBook can both have the workspace open while the agent
+runs, and neither starves. Prices change often, so confirm in OVH's configurator.
+
+Ordering is a payment, so you do it in your browser:
+OVH Control Panel → Bare Metal Cloud → VPS → Order → pick the tier above →
+Ubuntu 24.04 → add the Automated Backup option → pay. When the delivery email
+arrives (5–30 min), note the **IPv4 address** and the **ubuntu** user's password.
+
+### 1. Set up from your first Mac (one command)
+
+```bash
+git clone <this repo> && cd stars-web-scrape
+ops/ovhcloud/mac/install.sh <VPS_IPv4>
+```
+It will ask you for three things: a passphrase for a new SSH key (stored in Keychain), the
+VPS password from OVH's email (once, before password login is disabled), and your
+Anthropic API key (hidden input). Then it hardens the server, installs Docker,
+Node 22, Claude Code and the agent stack, and verifies the login.
+
+### 2. Add your second Mac
+
+```bash
+ops/ovhcloud/mac/install.sh <VPS_IPv4> --client-only      # on the second Mac: prints a key
+agent-ctl authorize 'ssh-ed25519 AAAA… ovh-agent@MacBook'   # on the first Mac
+ops/ovhcloud/mac/install.sh <VPS_IPv4> --client-only      # second Mac again: confirms access
+```
+Each Mac has its own key, so you can revoke one without touching the other.
+
+### 3. Work
+
+```bash
+agent-ctl clone git@github.com:you/project.git   # code lives on the server
+agent-ctl code project                           # VS Code on either Mac, running remotely
+agent-ctl claude project                         # Claude Code in tmux on the server; survives closing the lid
+agent-ctl set-cmd "python -m myagent.main"       # or run your own framework as the 24/7 service
+agent-ctl tokens                                 # live token/cost feed
+```
+Both Macs open the *same* files on the server, so there's no sync between them and
+no conflicts. Neither Mac runs language servers, indexers or the agent.
+
+`set-cmd` takes a plain command, with no `&&` or pipes. Wrap anything more complex as
+`sh -c '…'` or put it in a script inside the workspace. Note that `$` is
+expanded by docker compose (write `$$` for a literal `$`).
+
+---
+
 | File | Runs on | Purpose |
 |---|---|---|
-| `provision.sh` | Mac | OpenStack CLI: keypair, firewall group, volume, instance |
-| `cloud-init.yaml` | OVH (first boot) | `agent` user, SSH hardening, base packages |
-| `bootstrap.sh` | OVH (once, sudo) | ufw, fail2ban, volume mount, Docker, API-key secret, systemd unit |
-| `docker/` | OVH | Python 3.12 + Node 22 non-root image, compose stack, secret-loading entrypoint |
+| `mac/install.sh` | Mac | **One-command setup**: SSH key + alias, server bootstrap, API key, `agent-ctl`, VS Code extension |
+| `provision.sh` | Mac | Alternative to a VPS: Public Cloud instance + volume via the OpenStack CLI |
+| `cloud-init.yaml` | OVH (first boot) | Public Cloud path only: `agent` user, SSH hardening |
+| `bootstrap.sh` | OVH (once, sudo) | `agent` user, SSH hardening, ufw, fail2ban, swap, inotify, Docker, Node + Claude Code, API-key secret, systemd unit |
+| `docker/` | OVH | Python 3.12 + Node 22 non-root image, compose stack, secret-loading entrypoint, idle placeholder |
 | `systemd/agent.service` | OVH | Keeps the stack up across SSH disconnects and reboots |
 | `agent_metrics.py` | OVH (in container) | Token/cost metering → `usage.jsonl` + Prometheus; key redaction in logs |
 | `mac/ssh_config` | Mac | Multiplexed, keychain-backed SSH alias `ovh-agent` |
 | `mac/sync.sh` | Mac | Mutagen / rsync / fswatch sync modes |
-| `mac/agent-ctl.sh` | Mac | Logs, live token feed, spend report, metrics tunnel, restart |
+| `mac/agent-ctl.sh` | Mac | status, logs, tokens, spend, metrics, set-cmd, code, claude, clone, authorize, rotate-key |
 | `git/post-receive` | OVH | `git push ovh main` → deploy + restart |
 
 ---
@@ -90,8 +154,10 @@ A b3-8 plus pay-per-token embeddings is usually cheaper than a b3-32.
   `ControlMaster` in `mac/ssh_config` reuses one SSH connection, so `rsync`,
   `mutagen`, VS Code and `agent-ctl` don't pay a fresh handshake each time.
 - **Persistence:**
-  - `/srv/agent` is an **OVH Block Storage volume** (`high-speed`). It survives
-    instance deletion and rebuilds. Layout: `workspace/` (code), `state/`
+  - **VPS path (recommended):** `/srv/agent` sits on the VPS's NVMe disk, which persists
+    across reboots. OVH's Automated Backup option takes daily snapshots, and you push
+    workspaces to Git. **Public Cloud path:** `/srv/agent` is a Block Storage volume
+    (`high-speed`) that survives instance deletion and rebuilds. Layout: `workspace/` (code), `state/`
     (conversation checkpoints, so the agent can resume after a restart), `index/`,
     `logs/`.
   - The instance root disk is disposable. Rebuild it at will.
@@ -154,7 +220,7 @@ What it does:
 ### 2.4 Plug in your agent
 
 - Put your framework's code in `/srv/agent/workspace/` (clone it there, or sync it, see §3).
-- Set `command:` in `/opt/agent/compose.yaml` to its entrypoint (e.g. `["python", "-m", "myagent.main"]` or `["node", "dist/index.js"]`).
+- Set its entrypoint with `agent-ctl set-cmd "python -m myagent.main"` (stored as `AGENT_CMD` in `/opt/agent/.env`). Until you do, a placeholder keeps the service healthy.
 - Add its dependencies to `/opt/agent/requirements.txt` (or add an `npm ci` step to the Dockerfile).
 - Wire up metering, which takes three lines:
 

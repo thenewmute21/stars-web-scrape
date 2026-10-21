@@ -13,8 +13,9 @@ RUN groupadd -g 10001 agent && useradd -u 10001 -g agent -m -s /bin/bash agent
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY agent_metrics.py entrypoint.sh ./
-RUN chmod 0755 entrypoint.sh
+COPY agent_metrics.py agent_idle.py entrypoint.sh ./
+RUN chmod 0755 entrypoint.sh \
+    && git config --system safe.directory '*'
 
 USER agent
 ENV PYTHONUNBUFFERED=1 \
@@ -24,4 +25,4 @@ ENV PYTHONUNBUFFERED=1 \
 
 # tini reaps zombie tool subprocesses (git, rg, node) spawned by the agent loop.
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
-CMD ["python", "-m", "agent"]
+CMD ["python", "/app/agent_idle.py"]
