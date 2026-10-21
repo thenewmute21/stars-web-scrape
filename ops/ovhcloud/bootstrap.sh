@@ -21,6 +21,10 @@ SECRETS_DIR=/etc/agent/secrets
 AGENT_UID=10001   # matches the non-root user baked into docker/Dockerfile
 INVOKING_USER="${SUDO_USER:-root}"
 export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a   # Ubuntu 24.04 needrestart would otherwise stall the upgrade
+# A fresh VPS runs unattended-upgrades on first boot and holds the dpkg lock for
+# several minutes; wait for it instead of failing under set -e.
+apt-get() { command apt-get -o DPkg::Lock::Timeout=600 "$@"; }
 
 echo ">> Packages"
 apt-get update -q
@@ -54,7 +58,8 @@ ClientAliveCountMax 5
 EOF
 mkdir -p /run/sshd
 sshd -t
-systemctl reload ssh 2>/dev/null || systemctl reload sshd
+# Ubuntu 24.04 socket-activates ssh; reload-or-restart works whether or not ssh.service is running.
+systemctl reload-or-restart ssh 2>/dev/null || systemctl reload-or-restart sshd
 
 echo ">> Firewall"
 ufw default deny incoming
