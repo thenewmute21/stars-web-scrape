@@ -160,6 +160,8 @@ EOF
 fi
 chown -R agent:agent /opt/agent
 install -m 0644 "$HERE/systemd/agent.service" /etc/systemd/system/agent.service
+# Same helpers as the colocated install, so agent-ctl works identically on both.
+install -m 0755 -o root -g root "$HERE"/bin/agent-compose "$HERE"/bin/agent-set-cmd "$HERE"/bin/agent-set-key /usr/local/bin/
 systemctl daemon-reload
 systemctl enable agent.service
 systemctl restart agent.service

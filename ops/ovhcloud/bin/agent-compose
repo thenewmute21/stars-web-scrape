@@ -1,0 +1,10 @@
+#!/bin/bash
+# Read-only view of the agent stack for the 'agent' user (via sudo).
+set -euo pipefail
+C=(docker compose -f /opt/agent/compose.yaml --project-directory /opt/agent)
+case "${1:-}" in
+  ps)    exec "${C[@]}" ps --format '{{.Name}}: {{.Status}}' ;;
+  logs)  n="${2:-200}"; [[ "$n" =~ ^[0-9]+$ ]] || n=200; exec "${C[@]}" logs -f --tail="$n" agent ;;
+  stats) exec docker stats agent-agent-1 ;;
+  *) echo "usage: agent-compose ps|logs [N]|stats" >&2; exit 64 ;;
+esac

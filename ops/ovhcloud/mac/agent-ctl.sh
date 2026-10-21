@@ -18,17 +18,19 @@
 set -euo pipefail
 
 HOST="${HOST:-ovh-agent}"
-COMPOSE="docker compose -f /opt/agent/compose.yaml"
+# Root-owned helpers (installed by bootstrap.sh and colocate.sh); the agent user
+# may sudo only these, so this works on a dedicated VPS and a shared host alike.
+COMPOSE="sudo -n /usr/local/bin/agent-compose"
 USAGE=/srv/agent/logs/usage.jsonl
 WS=/srv/agent/workspace
 
 case "${1:-status}" in
   status)
     ssh "$HOST" "systemctl is-active agent >/dev/null && echo 'service: active' || echo 'service: INACTIVE';
-      $COMPOSE ps --format '{{.Name}}: {{.Status}}'; grep ^AGENT_CMD /opt/agent/.env;
-      df -h /srv/agent | tail -1 | awk '{print \"disk: \"\$3\" used / \"\$2\" (\"\$5\")\"}';
+      $COMPOSE ps; grep ^AGENT_CMD /opt/agent/.env;
+      df -h /srv/agent/ | tail -1 | awk '{print \"disk: \"\$3\" used / \"\$2\" (\"\$5\")\"}';
       free -h | awk '/Mem/{print \"mem: \"\$3\" used / \"\$2}'; uptime" ;;
-  logs)    ssh -t "$HOST" "$COMPOSE logs -f --tail=200 agent" ;;
+  logs)    ssh -t "$HOST" "$COMPOSE logs 200" ;;
   tokens)
     ssh "$HOST" "touch $USAGE; tail -n 20 -F $USAGE" | jq -r --unbuffered \
       '"\(.ts|localtime|strftime("%H:%M:%S")) \(.model) in=\(.input) out=\(.output) cache_r=\(.cache_read) cache_w=\(.cache_write) $\(.cost_usd) \(.seconds)s \(.stop_reason)"'
@@ -47,12 +49,10 @@ case "${1:-status}" in
     echo ">> http://localhost:9464/metrics  (Ctrl-C to close tunnel)"
     ssh -N -L 9464:127.0.0.1:9464 "$HOST"
     ;;
-  top)     ssh -t "$HOST" "docker stats agent-agent-1" ;;
+  top)     ssh -t "$HOST" "$COMPOSE stats" ;;
   set-cmd)
     CMD="${2:?usage: agent-ctl set-cmd \"python -m myagent\"}"
-    printf '%s' "$CMD" | ssh "$HOST" 'c=$(cat); grep -v "^AGENT_CMD=" /opt/agent/.env > /opt/agent/.env.new
-      printf "AGENT_CMD=%s\n" "$c" >> /opt/agent/.env.new && mv /opt/agent/.env.new /opt/agent/.env
-      sudo systemctl reload agent && echo "AGENT_CMD=$c (restarted)"'
+    printf '%s' "$CMD" | ssh "$HOST" 'sudo -n /usr/local/bin/agent-set-cmd'
     ;;
   code)
     command -v code >/dev/null || { echo "VS Code 'code' CLI not on PATH (VS Code → Command Palette → Shell Command: Install)"; exit 1; }
@@ -75,9 +75,7 @@ case "${1:-status}" in
   rotate-key)
     read -rsp "New ANTHROPIC_API_KEY (input hidden): " AK; echo
     [[ "$AK" == sk-ant-* ]] || { echo "doesn't look like an Anthropic key"; exit 1; }
-    printf '%s' "$AK" | ssh "$HOST" 'sudo sh -c "umask 077; cat > /etc/agent/secrets/anthropic_api_key.new &&
-      chown 10001:root /etc/agent/secrets/anthropic_api_key.new && chmod 0400 /etc/agent/secrets/anthropic_api_key.new &&
-      mv /etc/agent/secrets/anthropic_api_key.new /etc/agent/secrets/anthropic_api_key" && sudo systemctl restart agent && echo "rotated; revoke the old key in the Console"'
+    printf '%s' "$AK" | ssh "$HOST" 'sudo -n /usr/local/bin/agent-set-key'
     unset AK
     ;;
   restart) ssh "$HOST" "sudo systemctl restart agent" ;;

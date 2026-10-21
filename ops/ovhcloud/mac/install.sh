@@ -3,19 +3,23 @@
 #
 #   First Mac (sets up the server):   ./install.sh <SERVER_IP> [--user ubuntu]
 #   Each additional Mac:              ./install.sh <SERVER_IP> --client-only
+#   Shared host you already admin:    ./install.sh <SERVER_IP> --colocate <admin-ssh-alias>
+#     (no bootstrap/hardening; runs colocate.sh: locked-down agent user, no sudo/docker)
 #
 # --user is the login OVH created (Ubuntu images: "ubuntu"; Debian: "debian").
 # If you didn't add an SSH key when ordering, you'll be asked once for the
 # password from OVH's delivery email; after that, password login is disabled.
 set -euo pipefail
 
-IP="${1:?usage: install.sh <SERVER_IP> [--user ubuntu] [--client-only]}"; shift
+IP="${1:?usage: install.sh <SERVER_IP> [--user ubuntu] [--client-only] [--colocate <admin-alias>]}"; shift
 INIT_USER=ubuntu
 CLIENT_ONLY=0
+ADMIN=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --user) INIT_USER="$2"; shift 2 ;;
     --client-only) CLIENT_ONLY=1; shift ;;
+    --colocate) ADMIN="${2:?--colocate needs your admin ssh alias}"; shift 2 ;;
     *) echo "unknown option $1"; exit 1 ;;
   esac
 done
@@ -92,6 +96,27 @@ if [[ $CLIENT_ONLY -eq 1 ]]; then
     echo
     echo "then re-run: $0 $IP --client-only"
   fi
+  exit 0
+fi
+
+if [[ -n "$ADMIN" ]]; then
+  say "Installing the locked-down agent stack via your admin login '$ADMIN'"
+  rsync -az --delete --exclude mac/ "$KIT/" "$ADMIN:ovhcloud/"
+  ssh "$ADMIN" 'sudo bash ~/ovhcloud/colocate.sh'
+  say "Authorizing this Mac's key for agent@$IP"
+  ssh "$ADMIN" "sudo sh -c 'cat >> /home/agent/.ssh/authorized_keys && sort -u -o /home/agent/.ssh/authorized_keys /home/agent/.ssh/authorized_keys'" < "$KEY.pub"
+  ssh -O exit "$ALIAS" 2>/dev/null || true
+  if ! ssh "$ADMIN" 'sudo test -s /etc/agent/secrets/anthropic_api_key'; then
+    say "Anthropic API key"
+    echo "Use a dedicated key for this agent (Console → API keys), ideally in a workspace with a spend limit."
+    read -rsp "Paste ANTHROPIC_API_KEY (input hidden): " AK; echo
+    [[ "$AK" == sk-ant-* ]] || { echo "That doesn't look like an Anthropic key."; exit 1; }
+    printf '%s' "$AK" | ssh "$ALIAS" 'sudo -n /usr/local/bin/agent-set-key'
+    unset AK
+  fi
+  say "Verifying"
+  ssh "$ALIAS" 'echo "logged in as $(whoami) on $(hostname)"; sudo -n /usr/local/bin/agent-compose ps'
+  echo; echo "Done. Try: agent-ctl status | agent-ctl logs | agent-ctl code"
   exit 0
 fi
 

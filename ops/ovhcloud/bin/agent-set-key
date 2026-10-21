@@ -1,0 +1,13 @@
+#!/bin/bash
+# Store the Anthropic API key from stdin as the 0400 compose secret and restart.
+set -euo pipefail
+key="$(head -c 512 | tr -d '\r\n')"
+[[ "$key" == sk-ant-* ]] || { echo "doesn't look like an Anthropic key" >&2; exit 64; }
+install -d -m 0711 -o root -g root /etc/agent/secrets
+(umask 077; printf '%s' "$key" > /etc/agent/secrets/anthropic_api_key.new)
+unset key
+chown 10001:root /etc/agent/secrets/anthropic_api_key.new
+chmod 0400 /etc/agent/secrets/anthropic_api_key.new
+mv /etc/agent/secrets/anthropic_api_key.new /etc/agent/secrets/anthropic_api_key
+systemctl restart agent
+echo "key stored; agent restarted (revoke any old key in the Console)"

@@ -1,0 +1,11 @@
+#!/bin/bash
+# Set AGENT_CMD (read from stdin, one line) and reload the agent.
+set -euo pipefail
+c="$(head -c 4096)"
+[[ -n "$c" && "$c" != *$'\n'* && "$c" != *$'\r'* ]] || { echo "AGENT_CMD must be one non-empty line" >&2; exit 64; }
+tmp="$(mktemp /opt/agent/.env.XXXXXX)"
+grep -v '^AGENT_CMD=' /opt/agent/.env > "$tmp" || true
+printf 'AGENT_CMD=%s\n' "$c" >> "$tmp"
+chown root:agent "$tmp" && chmod 0640 "$tmp" && mv "$tmp" /opt/agent/.env
+systemctl reload-or-restart agent
+echo "AGENT_CMD=$c (restarted)"
