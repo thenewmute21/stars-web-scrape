@@ -46,11 +46,15 @@ def run(task: Path) -> None:
     p = subprocess.run(
         ["claude", "-p", prompt, "--output-format", "json", "--permission-mode", "bypassPermissions"],
         cwd=cwd, capture_output=True, text=True, timeout=TIMEOUT_S,
+        # ANTHROPIC_LOG (set for the SDK in compose) makes Claude Code print HTTP
+        # log lines on stdout ahead of the JSON result.
+        env={k: v for k, v in os.environ.items() if k != "ANTHROPIC_LOG"},
     )
     elapsed = time.monotonic() - t0
     try:
-        result = json.loads(p.stdout)
-    except json.JSONDecodeError:
+        # the result is the last JSON line; tolerate any log noise before it
+        result = json.loads(next(l for l in reversed(p.stdout.splitlines()) if l.startswith("{")))
+    except (StopIteration, json.JSONDecodeError):
         result = {"is_error": True, "result": (p.stdout or p.stderr)[-4000:], "exit_code": p.returncode}
     (OUTBOX / f"{task.stem}.json").write_text(json.dumps(result, indent=1))
     try:
