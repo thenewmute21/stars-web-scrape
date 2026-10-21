@@ -101,7 +101,9 @@ def record_usage(message, elapsed: float, tag: str | None = None) -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     with USAGE_FILE.open("a") as f:
         f.write(json.dumps({
-            "ts": time.time(), "model": model, "request_id": message._request_id,
+            "ts": time.time(), "model": model,
+            # streamed final messages carry no _request_id (anthropic 2.x)
+            "request_id": getattr(message, "_request_id", None),
             "stop_reason": message.stop_reason, "seconds": round(elapsed, 2),
             "cost_usd": round(cost, 6), "tag": tag, **counts,
         }) + "\n")
@@ -135,7 +137,10 @@ class _MeteredMessages:
         t0 = time.monotonic()
         message = self._messages.create(**kwargs)
         if not kwargs.get("stream"):
-            record_usage(message, time.monotonic() - t0)
+            try:
+                record_usage(message, time.monotonic() - t0)
+            except Exception:  # metering must never break the agent loop
+                logging.getLogger(__name__).exception("usage metering failed")
         return message
 
     def stream(self, **kwargs):
