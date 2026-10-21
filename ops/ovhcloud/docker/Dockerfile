@@ -8,12 +8,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Claude Code CLI: lets the agent run on a Claude subscription token (cc_agent.py).
+RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
+
 RUN groupadd -g 10001 agent && useradd -u 10001 -g agent -m -s /bin/bash agent
 
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY agent_metrics.py agent_idle.py entrypoint.sh ./
+COPY agent_metrics.py agent_idle.py cc_agent.py entrypoint.sh ./
 RUN chmod 0755 entrypoint.sh \
     && git config --system safe.directory '*'
 

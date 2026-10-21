@@ -48,7 +48,7 @@ ln -sfn /srv/agent/workspace /home/agent/workspace
 
 echo ">> Agent stack in /opt/agent (root-owned)"
 install -d -m 0755 -o root -g root /opt/agent
-for f in compose.yaml entrypoint.sh agent_idle.py; do install -m 0644 "$HERE/docker/$f" /opt/agent/; done
+for f in compose.yaml entrypoint.sh agent_idle.py cc_agent.py; do install -m 0644 "$HERE/docker/$f" /opt/agent/; done
 install -m 0644 "$HERE/agent_metrics.py" /opt/agent/
 # Dependencies stay editable by the agent user; keep their edits on re-run.
 for f in Dockerfile requirements.txt; do

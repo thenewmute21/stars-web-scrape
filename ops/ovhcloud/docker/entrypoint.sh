@@ -4,12 +4,17 @@
 set -euo pipefail
 
 SECRET_FILE=/run/secrets/anthropic_api_key
-if [[ -z "${ANTHROPIC_API_KEY:-}" && -r "$SECRET_FILE" ]]; then
-  ANTHROPIC_API_KEY="$(<"$SECRET_FILE")"
-  export ANTHROPIC_API_KEY
+if [[ -z "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}" && -r "$SECRET_FILE" ]]; then
+  cred="$(<"$SECRET_FILE")"
+  # A subscription token (claude setup-token) only works through Claude Code;
+  # an API key works for the SDK and Claude Code alike.
+  if [[ "$cred" == sk-ant-oat* ]]; then export CLAUDE_CODE_OAUTH_TOKEN="$cred"; else export ANTHROPIC_API_KEY="$cred"; fi
+  unset cred
 fi
-[[ -n "${ANTHROPIC_API_KEY:-}" ]] || { echo "ANTHROPIC_API_KEY secret missing" >&2; exit 78; }
+tail4="${ANTHROPIC_API_KEY:-${CLAUDE_CODE_OAUTH_TOKEN:-}}"
+[[ -n "$tail4" ]] || { echo "Claude credential secret missing" >&2; exit 78; }
 
 mkdir -p "$AGENT_LOG_DIR"
-echo "agent starting: key=sk-ant-***${ANTHROPIC_API_KEY: -4} workspace=$AGENT_WORKSPACE"
+echo "agent starting: auth=$([[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] && echo subscription || echo api_key) key=sk-ant-***${tail4: -4} workspace=$AGENT_WORKSPACE"
+unset tail4
 exec "$@"

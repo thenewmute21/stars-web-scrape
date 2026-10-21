@@ -159,3 +159,29 @@ class metered:
 
     def __getattr__(self, name):
         return getattr(self._client, name)
+
+
+def record_claude_code(result: dict, elapsed: float, tag: str | None = None) -> None:
+    """Export one `claude -p --output-format json` result (Claude Code, e.g. on a subscription token)."""
+    u = result.get("usage") or {}
+    counts = {
+        "input": u.get("input_tokens", 0) or 0,
+        "output": u.get("output_tokens", 0) or 0,
+        "cache_write": u.get("cache_creation_input_tokens", 0) or 0,
+        "cache_read": u.get("cache_read_input_tokens", 0) or 0,
+    }
+    model = next(iter(result.get("modelUsage") or {}), "claude-code")
+    cost = float(result.get("total_cost_usd") or 0)   # Claude Code's own estimate; a subscription isn't billed per token
+    stop = "error" if result.get("is_error") else (result.get("subtype") or "success")
+    for kind, n in counts.items():
+        TOKENS.labels(model, kind).inc(n)
+    COST.labels(model).inc(cost)
+    REQUESTS.labels(model, stop).inc()
+    LATENCY.labels(model).observe(elapsed)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    with USAGE_FILE.open("a") as f:
+        f.write(json.dumps({
+            "ts": time.time(), "model": model, "request_id": result.get("session_id"),
+            "stop_reason": stop, "seconds": round(elapsed, 2), "cost_usd": round(cost, 6),
+            "tag": tag, **counts,
+        }) + "\n")
